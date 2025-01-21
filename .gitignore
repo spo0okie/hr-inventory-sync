@@ -1,0 +1,7 @@
+proxy
+*.csv
+*.json
+config.php*
+.idea
+portal-vac.*
+portal2.*
