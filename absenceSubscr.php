@@ -15,8 +15,6 @@ $_SERVER ["DOCUMENT_ROOT"] = '/home/bitrix/www';
 // Будем работать с информационными блоками
 CModule::IncludeModule('iblock');
 
-require __DIR__."/libs/Abstract/COrgStructureStorage.php";
-require __DIR__."/libs/SAP/CSapAbsentsStructure.php";
 require __DIR__."/config.php";
 
 

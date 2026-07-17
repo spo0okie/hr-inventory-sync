@@ -14,12 +14,15 @@
 define("NO_KEEP_STATISTIC", true);
 define("NOT_CHECK_PERMISSIONS", true);
 
-$_SERVER ["DOCUMENT_ROOT"] = '/home/bitrix/www';
+require __DIR__."/config.php";
+
+$_SERVER ["DOCUMENT_ROOT"] = $bitrix_root;
 @require ($_SERVER ["DOCUMENT_ROOT"] . "/bitrix/modules/main/include/prolog_before.php");
 // Будем работать с информационными блоками
 CModule::IncludeModule('iblock');
 
-require "COrgStructureStorage.php";
+require __DIR__."/libs/Abstract/COrgStructureStorage.php";
+require __DIR__."/libs/Bitrix/CBxUserList.php";
 
 //включаем вывод всех ошибок
 error_reporting(E_WARNING);

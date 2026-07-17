@@ -19,7 +19,7 @@
  * @var $grpListAll array
  * @var $managersTitles array
  * @var $grpListManagers array
- * @var $AZM_factories array
+ * @var $factories array
  * @var $sapCacheDir string
  * @var $sapPhotoCache string
  */
@@ -52,7 +52,7 @@ echo date('c')." Script started\n";
 
 $dataSrc=$dataSrc_SAP;
 $org_id=$dataSrc['org_id'];
-$sapOrgDict=$AZM_factories;
+$sapOrgDict=$factories;
 
 
 echo "Refreshing SAP cache ...\n";
