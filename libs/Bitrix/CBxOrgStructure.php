@@ -159,6 +159,12 @@ class CBxOrgStructure extends COrgStructureStorage {
 		//почистим
 		$params=CbxOrgStructure::cleanParams($params);
 
+		//dry-run: секцию не создаём, только сообщаем о намерении
+		if ($this->readOnly) {
+			echo "[DRY-RUN] создал бы секцию CODE=".($params['CODE']??'?')." NAME=".($params['NAME']??'')."\n";
+			return 'DRYRUN-'.($params['CODE']??'');
+		}
+
 		//debug
 		echo "Adding ".print_r($params,true)."\n";
 		//exit();
@@ -187,10 +193,10 @@ class CBxOrgStructure extends COrgStructureStorage {
 		//почистим
 		$arFields=static::cleanParams($arFields);
 		
-		//die('Uh oh lets check what i have done...');
+		//dry-run: не пишем, только сообщаем о намерении
 		if ($this->readOnly) {
-			echo "Updating $id with ".print_r($arFields,true)."\n";
-			return false;
+			echo "[DRY-RUN] секция #$id: обновил бы ".json_encode($arFields, JSON_UNESCAPED_UNICODE)."\n";
+			return true;
 		}
 
 		//пишем

@@ -40,6 +40,16 @@ function loadDataSource($src, &$sapOrg) {
 				$src['path'][3]
 			);
 			break;
+		case 'rest':
+			//источник ARMS: path — массив ['url','user','pass','orgs']
+			$cfg = $src['path'];
+			$client = new CArmsRestClient(
+				$cfg['url'],
+				$cfg['user'] ?? '',
+				$cfg['pass'] ?? ''
+			);
+			$sapOrg->loadFromRest($client, $cfg['orgs'] ?? []);
+			break;
 		default:
 			die('Unknown org file type');
 	}
@@ -70,6 +80,11 @@ function initOrgStructure($dataSrc) {
 			echo "SQL mode\n";
 			require_once "SQL/CSQLOrgStructure.php";
 			$sapOrg = new CSQLOrgStructure();
+			break;
+		case 'arms':
+			echo "ARMS mode\n";
+			require_once "Arms/CArmsOrgStructure.php";
+			$sapOrg = new CArmsOrgStructure();
 			break;
 		default:
 			die('Unknown org data source');
@@ -108,6 +123,11 @@ function initUserList($dataSrc) {
 			echo "SQL mode\n";
 			require_once "SQL/CSQLUserList.php";
 			$sapOrg = new CSQLUserList();
+			break;
+		case 'arms':
+			echo "ARMS mode\n";
+			require_once "Arms/CArmsUserList.php";
+			$sapOrg = new CArmsUserList();
 			break;
 		default:
 			die('Unknown org data source');

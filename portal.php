@@ -50,14 +50,9 @@ ob_flush();
 echo date('c')." Script started\n";
 
 
-$dataSrc=$dataSrc_SAP;
+$dataSrc=$dataSrc_arms;
 $org_id=$dataSrc['org_id'];
-$sapOrgDict=$factories;
-
-
-echo "Refreshing SAP cache ...\n";
-ob_flush();
-system("$sapCache");
+// источник — ARMS через REST, внешний кэш SAP тут не нужен
 
 
 $sapOrg=initOrgStructure($dataSrc);
@@ -86,7 +81,13 @@ ob_flush();
 echo "Initializing BX groups\n";
 $bxGrp = new CBxGroupList ();
 $bxUsers = new CBxUserList();
-//$bxUsers->readOnly=true;
+
+//режим dry-run: не пишем в Bitrix, только логируем намеренные изменения
+if (!empty($dryRun)) {
+	echo "*** DRY-RUN: запись в Bitrix отключена, изменения только логируются ***\n";
+	$bxOrg->readOnly = true;
+	$bxUsers->readOnly = true;
+}
 
 ob_flush();
 

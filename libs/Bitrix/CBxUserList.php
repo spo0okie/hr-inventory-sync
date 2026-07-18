@@ -248,10 +248,11 @@ class CBxUserList extends COrgStructureStorage {
 		//почистим
 		$arFields=CbxOrgStructure::cleanParams($arFields);
 		
-		//die('Uh oh lets check what i have done...');
-		//echo "Updating $id with ";
-		//var_dump($arFields);
-		if ($this->readOnly) return false;
+		//dry-run: не пишем, только сообщаем о намерении
+		if ($this->readOnly) {
+			echo "[DRY-RUN] пользователь #$id: обновил бы ".json_encode($arFields, JSON_UNESCAPED_UNICODE)."\n";
+			return true;
+		}
 
 		//пишем
 		$bs = new CUser();
