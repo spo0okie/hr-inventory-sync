@@ -1,0 +1,95 @@
+<?php
+require_once dirname(__FILE__) . "/CArmsRestClient.php";
+
+/*
+ * Запись данных в инвентаризацию ARMS через REST (плечо приёма SAP/1C -> ARMS).
+ *
+ * Заменяет прямые SQL-INSERT/UPDATE (inventory-SAP.php / inventory-1C.php) на
+ * идемпотентный upsert по натуральному ключу: поиск существующей записи, затем
+ * POST (создать) или PUT (обновить). Пишущая логика вынесена сюда, транспорт —
+ * в CArmsRestClient.
+ *
+ * Ключи:
+ *  - оргструктура: (org_id, hr_id) — уникальна в модели ARMS;
+ *  - сотрудник:    (org_id, employee_id) — трудоустройство.
+ *
+ * Признак увольнения на границе: внутренний boolean -> число 0/1 для ARMS.
+ */
+class CArmsWriter {
+
+	private CArmsRestClient $client;
+
+	/** dry-run: не писать, только логировать намерение */
+	public bool $dryRun = false;
+
+	public function __construct(CArmsRestClient $client) {
+		$this->client = $client;
+	}
+
+	/*
+	 * Карта hr_id => id записи ARMS для организации (для upsert оргструктуры без
+	 * запроса на каждый узел; фильтра по hr_id в API нет, поэтому тянем всю орг).
+	 */
+	public function fetchOrgMap($orgId): array {
+		$map = [];
+		foreach ($this->client->getAll('org-struct', ['org_id' => $orgId]) as $r)
+			$map[(string)$r['hr_id']] = $r['id'];
+		return $map;
+	}
+
+	/*
+	 * Upsert подразделения. $existingByHr — карта из fetchOrgMap(), обновляется на месте.
+	 * @return mixed id записи ARMS (или null в dry-run при создании)
+	 */
+	public function upsertOrgStruct($orgId, $hrId, $name, $parentHr, array &$existingByHr) {
+		$hrId = (string)$hrId;
+		$body = [
+			'org_id'       => $orgId,
+			'hr_id'        => $hrId,
+			'parent_hr_id' => (string)$parentHr,
+			'name'         => $name,
+		];
+		if (isset($existingByHr[$hrId])) {
+			$id = $existingByHr[$hrId];
+			if ($this->dryRun) { echo "[DRY] PUT org-struct/$id (hr=$hrId, name=$name)\n"; return $id; }
+			$this->client->update('org-struct', $id, $body);
+			return $id;
+		}
+		if ($this->dryRun) { echo "[DRY] POST org-struct (hr=$hrId, name=$name)\n"; return null; }
+		$res = $this->client->create('org-struct', $body);
+		$id = $res['id'] ?? null;
+		if (!is_null($id)) $existingByHr[$hrId] = $id;
+		return $id;
+	}
+
+	/*
+	 * Upsert сотрудника по (org_id, employee_id).
+	 * @param array $fields поля ARMS (employee_id, Orgeh, Doljnost, Ename, Persg,
+	 *                      Uvolen(0/1), Bday, uid, ... ) — org_id проставляется тут
+	 * @return mixed id записи ARMS (или null в dry-run при создании)
+	 */
+	public function upsertUser($orgId, array $fields) {
+		$body = $fields + ['org_id' => $orgId];
+		$existing = $this->client->findOne('users', [
+			'org_id'      => $orgId,
+			'employee_id' => $fields['employee_id'],
+		]);
+		if (!is_null($existing)) {
+			$id = $existing['id'];
+			if ($this->dryRun) { echo "[DRY] PUT users/$id (emp {$fields['employee_id']})\n"; return $id; }
+			$this->client->update('users', $id, $body);
+			return $id;
+		}
+		if ($this->dryRun) { echo "[DRY] POST users (emp {$fields['employee_id']})\n"; return null; }
+		$res = $this->client->create('users', $body);
+		return $res['id'] ?? null;
+	}
+
+	/*
+	 * Удаление записи (для обратного прохода: чистка того, чего больше нет в источнике).
+	 */
+	public function delete(string $resource, $id): void {
+		if ($this->dryRun) { echo "[DRY] DELETE $resource/$id\n"; return; }
+		$this->client->delete($resource, $id);
+	}
+}

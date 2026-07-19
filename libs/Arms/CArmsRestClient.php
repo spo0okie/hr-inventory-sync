@@ -83,17 +83,30 @@ class CArmsRestClient {
 	 * @return array список записей (ассоциативные массивы)
 	 */
 	public function getAll(string $resource, array $filter = []): array {
+		//фильтрация в ARMS — через экшн /filter (index отдаёт всё без фильтра!)
+		$path = $filter ? $resource . '/filter' : $resource;
 		$out = [];
 		$page = 1;
 		$pageCount = 1;
 		do {
-			[$code, $h, $data] = $this->request('GET', $resource, $filter + ['page' => $page, 'per-page' => $this->perPage]);
-			if ($code !== 200) throw new RuntimeException("ARMS API GET $resource -> HTTP $code");
+			[$code, $h, $data] = $this->request('GET', $path, $filter + ['page' => $page, 'per-page' => $this->perPage]);
+			if ($code !== 200) throw new RuntimeException("ARMS API GET $path -> HTTP $code");
 			if (is_array($data)) foreach ($data as $row) $out[] = $row;
 			$pageCount = isset($h['x-pagination-page-count']) ? (int)$h['x-pagination-page-count'] : 1;
 			$page++;
 		} while ($page <= $pageCount);
 		return $out;
+	}
+
+	/*
+	 * Поиск ОДНОЙ записи по уникальному фильтру через /{resource}/search.
+	 * @return array|null запись или null, если не найдено (ARMS отвечает HTTP 404)
+	 */
+	public function findOne(string $resource, array $filter): ?array {
+		[$code, $h, $data] = $this->request('GET', $resource . '/search', $filter);
+		if ($code === 404) return null;
+		if ($code !== 200) throw new RuntimeException("ARMS API GET $resource/search -> HTTP $code");
+		return is_array($data) ? $data : null;
 	}
 
 	/*
