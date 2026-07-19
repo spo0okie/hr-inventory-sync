@@ -25,6 +25,8 @@ class CArmsIngest {
 
 	/* Определяет org_id (ARMS) по принадлежности узла к юрлицу в дереве SAP. */
 	private function orgIdFor($sapOrg, $nodeId): ?int {
+		//пустой или отсутствующий узел (напр. битый/пустой Orgeh у сотрудника) — не юрлицо
+		if (!strlen((string)$nodeId) || !$sapOrg->exist($nodeId)) return null;
 		$orgId = null;
 		foreach ($this->inventoryOrgs as $sapObjid => $invId)
 			if ($sapOrg->hasParent($nodeId, $sapObjid)) $orgId = $invId;

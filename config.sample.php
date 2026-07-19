@@ -113,10 +113,37 @@ $inventory=[
 ];
 
 
-$inventory_import=[
-    $dataSrc_1c_rik,
-    $dataSrc_1c_tab,
-    $dataSrc_1c_nuf
+// путь к JSON-кэшу выгрузки из SAP (оргструктура + сотрудники), который готовит
+// внешний SAP-прокси; отсюда его читает приём SAP -> ARMS
+$sapCacheFile = '/opt/SAPcache/cache/orgStruct.cache.json';
+
+// РАСКЛАДКА ПОДРАЗДЕЛЕНИЙ SAP ПО ЮРЛИЦАМ ИНВЕНТАРИЗАЦИИ:
+//   Objid корневого узла юрлица в дереве SAP  =>  org_id организации в ARMS
+//
+// Организации (org_id) заводят администраторы ARMS вручную; здесь администратор
+// связывает их с корнями оргструктуры SAP. Каждое подразделение и сотрудник получает
+// org_id того юрлица, под чьим корнем он лежит в дереве SAP (поиск предка, hasParent).
+// Узел, не лежащий ни под одним из корней, в инвентаризацию НЕ попадает.
+// При вложенных юрлицах более конкретное указывать НИЖЕ по списку (выигрывает
+// последнее совпадение).
+$inventoryOrgs = [
+    '10000001' => 1,   // Objid «Рога и копыта» в SAP        -> org_id 1 в ARMS
+    '10001128' => 2,   // Objid дочерней «Табуретки» в SAP   -> org_id 2 в ARMS
+];
+
+// источники для приёма в инвентаризацию (inventory-SAP.php / inventory-arms.php).
+// src может быть 'sap' или 'c1'; юрлицо каждого узла определяется по $inventoryOrgs
+$inventory_import = [
+    'sources' => [
+        [   // источник: SAP — оргструктура и сотрудники из одного JSON-кэша
+            'org' => ['src'=>'sap', 'ftype'=>'json', 'path'=>$sapCacheFile],
+            'usr' => ['src'=>'sap', 'ftype'=>'json', 'path'=>$sapCacheFile],
+        ],
+    ],
+    'fields' => [ // какие поля переносить (используется старым inventory-SAP.php)
+        'org_id','Orgeh','Doljnost','Ename','Bday','Persg',
+        'employ_date','resign_date','Uvolen','uid',
+    ],
 ];
 
 ?>
