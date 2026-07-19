@@ -32,8 +32,8 @@ class CSapOrgStructure extends COrgStructureStorage{
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromXml($filename){
-		$this->data=COrgStructureStorage::loadFromXml($filename,'OOrgStruct','Objid');
+	public function loadFromXml($filename,$child='OOrgStruct',$item='Objid'){
+		$this->data=COrgStructureStorage::loadFromXml($filename,$child,$item);
 		//echo count($this->data)." items loaded in SAP Org storage\n";
 		//var_dump($this->data);
 		return is_array($this->data);
@@ -44,8 +44,8 @@ class CSapOrgStructure extends COrgStructureStorage{
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromJson($filename){
-		$this->data=COrgStructureStorage::loadFromJson($filename,'OOrgStruct','Objid');
+	public function loadFromJson($filename,$child='OOrgStruct',$item='Objid'){
+		$this->data=COrgStructureStorage::loadFromJson($filename,$child,$item);
 		//echo count($this->data)." items loaded in SAP Org storage\n";
 		//var_dump($this->data);
 		return is_array($this->data);
