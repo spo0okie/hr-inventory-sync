@@ -86,6 +86,49 @@ class CArmsWriter {
 	}
 
 	/*
+	 * Карта табельный (employee_id) => id записи ARMS по всем сотрудникам.
+	 * Табельный уникален между организациями (см. inventory-SAP.php).
+	 */
+	public function fetchUsersMap(): array {
+		$map = [];
+		foreach ($this->client->getAll('users') as $r)
+			$map[(string)$r['employee_id']] = $r['id'];
+		return $map;
+	}
+
+	/*
+	 * Upsert отсутствия по ключу идемпотентности (source, external_id).
+	 * @param array $fields поля ARMS: user_id, type, date_from, date_to, comment, source, external_id
+	 * @return mixed id записи ARMS (или null в dry-run при создании)
+	 */
+	public function upsertAbsence(array $fields) {
+		$existing = $this->client->findOne('absences', [
+			'source'      => $fields['source'],
+			'external_id' => $fields['external_id'],
+		]);
+		if (!is_null($existing)) {
+			$id = $existing['id'];
+			if ($this->dryRun) { echo "[DRY] PUT absences/$id ({$fields['external_id']})\n"; return $id; }
+			$this->client->update('absences', $id, $fields);
+			return $id;
+		}
+		if ($this->dryRun) { echo "[DRY] POST absences ({$fields['external_id']})\n"; return null; }
+		$res = $this->client->create('absences', $fields);
+		return $res['id'] ?? null;
+	}
+
+	/*
+	 * Все отсутствия источника (для обратного прохода).
+	 * @return array external_id => id записи ARMS
+	 */
+	public function fetchAbsenceMap(string $source): array {
+		$map = [];
+		foreach ($this->client->getAll('absences', ['source' => $source]) as $r)
+			$map[(string)$r['external_id']] = $r['id'];
+		return $map;
+	}
+
+	/*
 	 * Удаление записи (для обратного прохода: чистка того, чего больше нет в источнике).
 	 */
 	public function delete(string $resource, $id): void {

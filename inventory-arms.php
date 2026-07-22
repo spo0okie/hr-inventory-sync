@@ -46,4 +46,20 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 	echo "  users: обработано {$ru['processed']}, пропущено {$ru['skipped']}\n";
 }
 
+//приём отсутствий (если настроен кэш выгрузки отсутствий SAP)
+if (isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
+	echo "Loading absences...\n";
+	$sapAbsents = new CSapAbsentsStructure();
+	$sapAbsents->loadFromJson($sapAbsenceFile);
+
+	//предохранитель: как в absence.php
+	if (!is_array($sapAbsents->getIds()) || count($sapAbsents->getIds()) < 100)
+		die("Fail loading absences suspected (" . count((array)$sapAbsents->getIds()) . ")\n");
+
+	echo "Ingesting absences...\n";
+	$ra = $ingest->ingestAbsences($sapAbsents);
+	echo "  absences: обработано {$ra['processed']}, удалено исчезнувших {$ra['removed']}, " .
+		"пропущено: без сотрудника в ARMS {$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}\n";
+}
+
 echo date('c') . " Script complete\n";

@@ -122,9 +122,9 @@ class CSapAbsentsStructure extends COrgStructureStorage {
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromXml($filename){
+	public function loadFromXml($filename,$child='OAbsents',$item=['Pernr','Awart','Begda','Endda']){
 		//грузим данные САП из файла:
-		$this->data=COrgStructureStorage::loadFromXml($filename,'OAbsents',['Pernr','Awart','Begda','Endda']);
+		$this->data=COrgStructureStorage::loadFromXml($filename,$child,$item);
 		echo count($this->data)." items loaded in SAP Absents storage\n";
 		//var_dump($this->data);
 		return is_array($this->data);
@@ -136,9 +136,9 @@ class CSapAbsentsStructure extends COrgStructureStorage {
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromJson($filename){
+	public function loadFromJson($filename,$child='OAbsents',$item=['Pernr','Awart','Begda','Endda']){
 		//грузим данные САП из файла:
-		$this->data=COrgStructureStorage::loadFromJson($filename,'OAbsents',['Pernr','Awart','Begda','Endda']);
+		$this->data=COrgStructureStorage::loadFromJson($filename,$child,$item);
 		echo count($this->data)." items loaded in SAP Absentsstorage\n";
 		//var_dump($this->data);
 		return is_array($this->data);

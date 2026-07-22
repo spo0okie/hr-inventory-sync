@@ -1,5 +1,7 @@
 <?php
 require_once dirname(__FILE__) . "/CArmsWriter.php";
+require_once dirname(__FILE__) . "/../Abstract/COrgStructureStorage.php";
+require_once dirname(__FILE__) . "/../SAP/CSapAbsentsStructure.php";
 
 /*
  * Оркестрация приёма источника (SAP/1C) в ARMS через REST.
@@ -55,6 +57,94 @@ class CArmsIngest {
 			$processed++;
 		}
 		return ['processed' => $processed, 'skipped' => $skipped];
+	}
+
+	/*
+	 * Соответствие ID типа отсутствия Bitrix -> нормализованный код ARMS.
+	 * Группировка кодов SAP (Awart) по типам остаётся в согласованной таблице
+	 * CSapAbsentsStructure::$absentsTypes — здесь только конвертация её результата.
+	 */
+	public static array $absTypeCodes = [
+		8   => 'VACATION',
+		9   => 'ASSIGNMENT',
+		10  => 'LEAVESICK',
+		11  => 'LEAVEMATERNITY',
+		12  => 'LEAVEUNPAYED',
+		13  => 'UNKNOWN',
+		14  => 'OTHER',
+		293 => 'PERSONAL',
+	];
+
+	/*
+	 * Приём отсутствий из SAP в ARMS.
+	 *
+	 * external_id = составной ключ источника Pernr-Awart-Begda-Endda (он же ключ
+	 * записи в CSapAbsentsStructure). Awart нормализуется в код типа ARMS;
+	 * неизвестные коды пропускаются (как в absence.php — никогда не угадываются).
+	 * Сотрудник резолвится по табельному через карту employee_id -> users.id ARMS;
+	 * отсутствия сотрудников, которых нет в ARMS, пропускаются.
+	 *
+	 * Обратный проход: отсутствия source=sap, исчезнувшие из выгрузки SAP,
+	 * удаляются из ARMS (manual и другие источники не трогаются).
+	 *
+	 * @param CSapAbsentsStructure $sapAbsents загруженные отсутствия SAP
+	 * @param int|null $limit ограничение (для тестов)
+	 * @return array счётчики
+	 */
+	public function ingestAbsences($sapAbsents, $limit = null): array {
+		//карта табельный -> id ARMS по всем сотрудникам (табельник уникален между орг-ми)
+		$empMap = [];
+		foreach ($this->writer->fetchUsersMap() as $emp => $uid) $empMap[$emp] = $uid;
+
+		//карта уже существующих в ARMS отсутствий источника sap
+		$existing = $this->writer->fetchAbsenceMap('sap');
+		$seen = [];
+
+		$processed = 0; $skippedUser = 0; $skippedType = 0;
+		foreach ($sapAbsents->getIds() as $id) {
+			if (!is_null($limit) && $processed >= $limit) break;
+			$a = $sapAbsents->getItem($id);
+
+			//нормализация типа: Awart -> Bitrix ID (согласованная таблица) -> код ARMS
+			$bxType = CSapAbsentsStructure::absTypeFromSap($a['Awart']);
+			$code = static::$absTypeCodes[$bxType] ?? null;
+			if (is_null($code)) { $skippedType++; continue; }
+
+			//резолв сотрудника по табельному
+			$userId = $empMap[(string)$a['Pernr']] ?? null;
+			if (is_null($userId)) { $skippedUser++; continue; }
+
+			$this->writer->upsertAbsence([
+				'user_id'     => $userId,
+				'type'        => $code,
+				'date_from'   => $a['Begda'],
+				'date_to'     => $a['Endda'],
+				'comment'     => $a['Abstext'] ?? null,
+				'source'      => 'sap',
+				'external_id' => $id,
+			]);
+			$seen[$id] = true;
+			$processed++;
+		}
+
+		//обратный проход: чистим sap-отсутствия, которых больше нет в источнике
+		//(только при полном проходе — с limit сверка была бы ложной)
+		$removed = 0;
+		if (is_null($limit)) {
+			foreach ($existing as $extId => $armsId) {
+				if (!isset($seen[$extId]) && !$sapAbsents->exist($extId)) {
+					$this->writer->delete('absences', $armsId);
+					$removed++;
+				}
+			}
+		}
+
+		return [
+			'processed'   => $processed,
+			'skippedUser' => $skippedUser,
+			'skippedType' => $skippedType,
+			'removed'     => $removed,
+		];
 	}
 
 	/*
