@@ -129,6 +129,56 @@ class CArmsWriter {
 	}
 
 	/*
+	 * Синхронизация фотографии сотрудника (скан, привязанный к users_id).
+	 *
+	 * Скан-портрет именуется "photo-{pernr}-{date}" — SAP-дата фото хранится в
+	 * имени, т.к. fileDate скана = момент загрузки, а не дата фотографии.
+	 * Портрет по конвенции ARMS = последнее по дате изображение сотрудника,
+	 * поэтому устаревшие фото-сканы этого pernr удаляются.
+	 *
+	 * $getBlob вызывается только если фото реально нужно обновить (дорогое
+	 * обращение к SAP откладывается до необходимости).
+	 *
+	 * @param mixed    $userId  id сотрудника в ARMS
+	 * @param string   $pernr   табельный
+	 * @param string   $date    дата фото из SAP (PhotoDate, Y-m-d)
+	 * @param callable $getBlob fn(): ?string — бинарник изображения (jpeg) или null
+	 * @return string  ok|updated|fetch_failed
+	 */
+	public function syncUserPhoto($userId, string $pernr, string $date, callable $getBlob): string {
+		$want = "photo-$pernr-$date";
+		$have = false;
+		$stale = [];
+		foreach ($this->client->getAll('scans', ['users_id' => $userId, 'expand' => 'name']) as $s) {
+			//имя может приходить с расширением (зависит от версии ARMS) — сравниваем без него
+			$name = preg_replace('/\.[a-z0-9]+$/i', '', (string)($s['name'] ?? ''));
+			if (strpos($name, "photo-$pernr-") !== 0) continue; //чужие/не-фото сканы не трогаем
+			if ($name === $want) { $have = true; continue; }
+			$stale[] = $s['id'];
+		}
+
+		if (!$have) {
+			$blob = $getBlob();
+			if (is_null($blob) || !strlen($blob)) return 'fetch_failed'; //старые фото не трогаем
+			if ($this->dryRun) {
+				echo "[DRY] upload scans/$want.jpg (user $userId)\n";
+			} else {
+				$tmp = tempnam(sys_get_temp_dir(), 'sapph');
+				file_put_contents($tmp, $blob);
+				try {
+					$res = $this->client->uploadFile('scans/upload', $tmp, "$want.jpg", ['users_id' => $userId]);
+					if (!isset($res['id'])) throw new RuntimeException('upload не вернул id: ' . json_encode($res, JSON_UNESCAPED_UNICODE));
+				} finally {
+					unlink($tmp);
+				}
+			}
+		}
+
+		foreach ($stale as $sid) $this->delete('scans', $sid);
+		return $have ? 'ok' : 'updated';
+	}
+
+	/*
 	 * Удаление записи (для обратного прохода: чистка того, чего больше нет в источнике).
 	 */
 	public function delete(string $resource, $id): void {

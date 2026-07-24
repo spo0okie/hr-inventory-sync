@@ -18,6 +18,7 @@ echo date('c') . " Script started\n";
 require_once "config.php";
 require_once "libs/OrgStruct.php";
 require_once "libs/Arms/CArmsIngest.php";
+require_once "libs/Abstract/CUserPhotoStruct.php";
 
 //клиент и писатель ARMS
 $client = new CArmsRestClient($arms_api['url'], $arms_api['user'] ?? '', $arms_api['pass'] ?? '');
@@ -26,6 +27,9 @@ $writer->dryRun = !empty($dryRun);
 if ($writer->dryRun) echo "*** DRY-RUN: запись в ARMS отключена, изменения только логируются ***\n";
 
 $ingest = new CArmsIngest($writer, $inventoryOrgs);
+
+//режим photos: дополнительно синхронизировать фотографии сотрудников
+$withPhotos = in_array('photos', $argv);
 
 foreach ($inventory_import['sources'] as $dataSrc) {
 	$sapOrg = initOrgStructure($dataSrc);
@@ -44,6 +48,22 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 	echo "Ingesting users...\n";
 	$ru = $ingest->ingestUsers($sapUsers, $sapOrg);
 	echo "  users: обработано {$ru['processed']}, пропущено {$ru['skipped']}\n";
+
+	if ($withPhotos) {
+		echo "Ingesting photos...\n";
+		//бинарник фото запрашивается у SAP только для тех, у кого дата обновилась
+		$photoFetcher = function ($pernr) use ($sapPhotoCache, $sapCacheDir) {
+			$cache = $sapCacheDir . 'YfmGetPersPhoto.' . $pernr . '.json';
+			system("$sapPhotoCache $pernr $cache");
+			$photo = new CUserPhotoStruct();
+			if (!$photo->loadFromJson($cache)) return null;
+			if (!$photo->getTimeStamp()) return null; //в SAP фото так и не загружали
+			return $photo->getImage();
+		};
+		$rp = $ingest->ingestPhotos($sapUsers, $sapOrg, $photoFetcher);
+		echo "  photos: актуально {$rp['ok']}, обновлено {$rp['updated']}, ошибок {$rp['failed']}; " .
+			"без фото {$rp['noPhoto']}, вне юрлиц {$rp['skippedOrg']}, нет в ARMS {$rp['skippedUser']}\n";
+	}
 }
 
 //приём отсутствий (если настроен кэш выгрузки отсутствий SAP)

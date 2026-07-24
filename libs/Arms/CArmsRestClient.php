@@ -127,6 +127,42 @@ class CArmsRestClient {
 		return $code === 200 ? $data : null;
 	}
 
+	/*
+	 * Загрузка файла (multipart/form-data), напр. POST scans/upload.
+	 * @param string $action   путь экшена (scans/upload)
+	 * @param string $filePath локальный файл
+	 * @param string $postName имя файла для сервера (задаёт имя скана в ARMS)
+	 * @param array  $fields   дополнительные POST-поля (users_id и т.п.)
+	 * @return array декодированный ответ
+	 */
+	public function uploadFile(string $action, string $filePath, string $postName, array $fields = []): array {
+		$url = $this->baseUrl . '/' . ltrim($action, '/');
+		$ch = curl_init($url);
+		$opts = [
+			CURLOPT_POST           => true,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_TIMEOUT        => $this->timeout,
+			CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+			CURLOPT_POSTFIELDS     => $fields + ['scanFile' => new CURLFile($filePath, mime_content_type($filePath) ?: 'application/octet-stream', $postName)],
+		];
+		if (strlen($this->user)) {
+			$opts[CURLOPT_USERPWD]  = $this->user . ':' . $this->password;
+			$opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
+		}
+		curl_setopt_array($ch, $opts);
+		$raw = curl_exec($ch);
+		if ($raw === false) {
+			$err = curl_error($ch);
+			curl_close($ch);
+			throw new RuntimeException("ARMS API upload $url: $err");
+		}
+		$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		curl_close($ch);
+		if ($code < 200 || $code >= 300) throw new RuntimeException("ARMS API upload $action -> HTTP $code: " . substr($raw, 0, 200));
+		$data = json_decode($raw, true);
+		return is_array($data) ? $data : [];
+	}
+
 	// --- запись (приём SAP/1C -> ARMS, понадобится позже) ---
 
 	public function create(string $resource, array $body): array {

@@ -174,6 +174,49 @@ class CArmsIngest {
 	}
 
 	/*
+	 * Приём фотографий сотрудников из SAP в ARMS (сканы, привязанные к users_id).
+	 *
+	 * У кого фото есть и когда оно обновлялось — известно из выгрузки сотрудников
+	 * (PhotoDate); сам бинарник запрашивается через $photoFetcher только для тех,
+	 * у кого дата не совпала с уже загруженной (SAP-дата хранится в имени скана).
+	 * Уволенные и сотрудники вне настроенных юрлиц пропускаются.
+	 *
+	 * @param CSapUserList $sapUsers сотрудники SAP (с полем PhotoDate)
+	 * @param CSapOrgStructure $sapOrg оргструктура (для раскладки по юрлицам)
+	 * @param callable $photoFetcher fn(string $pernr): ?string — jpeg-бинарник или null
+	 * @param int|null $limit ограничение (для тестов)
+	 * @return array счётчики
+	 */
+	public function ingestPhotos($sapUsers, $sapOrg, callable $photoFetcher, $limit = null): array {
+		$empMap = $this->writer->fetchUsersMap();
+
+		$ok = 0; $updated = 0; $failed = 0;
+		$noPhoto = 0; $skippedOrg = 0; $skippedUser = 0; $checked = 0;
+		foreach ($sapUsers->getIds() as $id) {
+			if (!is_null($limit) && $checked >= $limit) break;
+			$u = $sapUsers->getItem($id);
+
+			if (($u['Uvolen'] ?? '') === 'Уволен') continue;
+			$date = (string)($u['PhotoDate'] ?? '');
+			if (!strlen($date) || $date === '0000-00-00') { $noPhoto++; continue; }
+			if (is_null($this->orgIdFor($sapOrg, $u['Orgeh'] ?? ''))) { $skippedOrg++; continue; }
+			$pernr = (string)$u['Pernr'];
+			$userId = $empMap[$pernr] ?? null;
+			if (is_null($userId)) { $skippedUser++; continue; }
+
+			$checked++;
+			$res = $this->writer->syncUserPhoto($userId, $pernr, $date, fn() => $photoFetcher($pernr));
+			if ($res === 'ok') $ok++;
+			elseif ($res === 'updated') $updated++;
+			else $failed++;
+		}
+		return [
+			'checked' => $checked, 'ok' => $ok, 'updated' => $updated, 'failed' => $failed,
+			'noPhoto' => $noPhoto, 'skippedOrg' => $skippedOrg, 'skippedUser' => $skippedUser,
+		];
+	}
+
+	/*
 	 * Приём сотрудников. Признак увольнения на границе: внутренний 'Уволен'/'' -> 0/1.
 	 * @param int|null $limit ограничение числа записей (для тестов)
 	 * @return array счётчики [processed, skipped]
