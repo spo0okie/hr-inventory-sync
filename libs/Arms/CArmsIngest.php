@@ -76,6 +76,28 @@ class CArmsIngest {
 	];
 
 	/*
+	 * Текст командировки по данным SAP: "Командировка в {Город} ({Страна})".
+	 * Продления не различаются (в SAP нет надёжного признака), даты не включаются
+	 * (период и так есть у отсутствия). Страна достраивается из ISO-кода CountryTo
+	 * (intl, по-русски), только если CityTo сам не содержит расшифровку в скобках
+	 * (формат CityTo непоследователен: "Иркутск (Россия)" vs "г. Каир").
+	 * @param array $a запись отсутствия SAP
+	 * @return string|null текст или null (нет города — пусть выгрузка возьмёт descr типа)
+	 */
+	public static function tripComment(array $a): ?string {
+		$city = trim((string)($a['CityTo'] ?? ''));
+		if (!strlen($city)) return null;
+		if (strpos($city, '(') === false) {
+			$iso = trim((string)($a['CountryTo'] ?? ''));
+			if (strlen($iso) && class_exists('Locale')) {
+				$country = Locale::getDisplayRegion('-' . $iso, 'ru');
+				if (strlen($country) && strcasecmp($country, $iso) !== 0) $city .= " ($country)";
+			}
+		}
+		return "Командировка в $city";
+	}
+
+	/*
 	 * Приём отсутствий из SAP в ARMS.
 	 *
 	 * external_id = составной ключ источника Pernr-Awart-Begda-Endda (он же ключ
@@ -114,12 +136,16 @@ class CArmsIngest {
 			$userId = $empMap[(string)$a['Pernr']] ?? null;
 			if (is_null($userId)) { $skippedUser++; continue; }
 
+			//для командировок в comment кладётся направление ("Командировка в ..."),
+			//выгрузка в Bitrix использует его как название; для прочих — текст источника
+			$comment = ($code === 'ASSIGNMENT') ? static::tripComment($a) : ($a['Abstext'] ?? null);
+
 			$this->writer->upsertAbsence([
 				'user_id'     => $userId,
 				'type'        => $code,
 				'date_from'   => $a['Begda'],
 				'date_to'     => $a['Endda'],
-				'comment'     => $a['Abstext'] ?? null,
+				'comment'     => $comment,
 				'source'      => 'sap',
 				'external_id' => $id,
 			]);
