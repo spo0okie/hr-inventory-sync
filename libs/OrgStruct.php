@@ -32,14 +32,6 @@ function loadDataSource($src, &$sapOrg) {
 		case 'xml':
 			$sapOrg->loadFromXml($src['path']);
 			break;
-		case 'sql':
-			$sapOrg->loadFromSQL(
-				$src['path'][0],
-				$src['path'][1],
-				$src['path'][2],
-				$src['path'][3]
-			);
-			break;
 		case 'rest':
 			//источник ARMS: path — массив ['url','user','pass','orgs']
 			$cfg = $src['path'];
@@ -75,11 +67,6 @@ function initOrgStructure($dataSrc) {
 			echo "SAP mode\n";
 			require_once "SAP/CSapOrgStructure.php";
 			$sapOrg = new CSapOrgStructure();
-			break;
-		case 'sql':
-			echo "SQL mode\n";
-			require_once "SQL/CSQLOrgStructure.php";
-			$sapOrg = new CSQLOrgStructure();
 			break;
 		case 'arms':
 			echo "ARMS mode\n";
@@ -118,11 +105,6 @@ function initUserList($dataSrc) {
 				echo "Dictionary attached\n";
 				$sapOrg->attachOrgDict($sapOrgDict);
 			}
-			break;
-		case 'sql':
-			echo "SQL mode\n";
-			require_once "SQL/CSQLUserList.php";
-			$sapOrg = new CSQLUserList();
 			break;
 		case 'arms':
 			echo "ARMS mode\n";

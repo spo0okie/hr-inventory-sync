@@ -1,149 +1,84 @@
 <?php
 /**
- * Пример конфига импорта в инвентори
+ * Шаблон конфигурации SAPsync (схема-хаб: SAP -> ARMS -> Bitrix).
+ * Скопируйте в config.php и заполните. config.php в gitignore.
  *
- * 2019-10-07, обновленная редация
- * Теперь необходимо в одну бд заталкивать несколько юрлиц.
+ * Какие переменные нужны какому скрипту:
+ *   inventory-arms.php  — $arms_api, $inventoryOrgs, $inventory_import, $dryRun,
+ *                         $sapCache*, $sapAbsence* (отсутствия), $sapPhotoCache (режим photos)
+ *   portal.php          — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root, $grpList*, $managersTitles
+ *   absenceSubscr.php   — $bitrix_root
+ *   bDayReminder.php    — $bitrix_root, $bdayRemindMail
  */
 
-//источник данных: 1С - Рога и копыта
-$dataSrc_1c_rik=[
-    'org_id'=>     1,
-    'org'=>[    //источник оргструктуры
-        'src'=>'c1',    
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out1_str2.csv',
-    ],
-    'usr'=>[ //источник списка сотрудников
-        'src'=>'c1',    
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out1.csv',
-    ],
-];
+// ===== ARMS (инвентаризация) =====
 
-//источник данных: 1С - Табуретка incorporated
-$dataSrc_1c_tab=[
-    'org_id'=>     2,
-    'org'=>[    //источник оргструктуры
-        'src'=>'c1',
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out2_str2.csv',
-    ],
-    'usr'=>[ //источник списка сотрудников
-        'src'=>'c1',    
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out2.csv',
-    ],
-];
-
-//источник данных: 1С - Нуф Нуф и Ко
-$dataSrc_1c_nuf=[
-    'org_id'=>     3,
-    'org'=>[    //источник оргструктуры
-        'src'=>'c1',
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out3_str2.csv',
-    ],
-    'usr'=>[ //источник списка сотрудников
-        'src'=>'c1',
-        'ftype'=>'csv',
-        'path'=>'/tmp/sync_inventory/out3.csv',
-    ],
-];
-
-
-//источник данных: Инвентаризация - MyDB (для передачи из инв в Битрикс)
-$dataSrc_inv_my=[
-    'org_id'=>     1,
-    'org'=>[    //откуда берем оргструктуру
-        'src'=>'sql',   
-        'ftype'=>'sql',
-        'path'=>['127.0.0.1', 'arms_user', 'password', 'arms_db'],
-    ],
-    'usr'=>[    //откуда берем юзеров
-        'src'=>'sql',   'ftype'=>'sql',
-        'path'=>['127.0.0.1', 'arms_user', 'password', 'arms_db'],
-    ],
-];
-
-//источник данных: ARMS (инвентаризация) -> Bitrix, через REST API.
-//На этот источник настроен portal.php в новом (ARMS-хаб) режиме.
+//REST API ARMS. Сервисному пользователю нужны права: index/view/update/delete
+//на users, org-struct, absences, scans (RBAC ARMS)
 $arms_api = [
-    'url'  => 'http://localhost:8081/web/api', //база REST API ARMS (на проде — свой хост)
-    'user' => '',   //сервисный пользователь ARMS (пусто = без авторизации, только dev)
-    'pass' => '',
-    'orgs' => [1],  //какие организации (org_id) выгружать в Bitrix
+	'url'  => 'https://inventory.example.com/web/api', //база REST API (обязательно /web/api)
+	'user' => 'sapsync',    //сервисный пользователь ARMS (пусто = без авторизации, только dev)
+	'pass' => 'secret',
+	'orgs' => [1],          //какие организации (org_id ARMS) выгружать в Bitrix
 ];
 
+//источник данных для portal.php (выгрузка ARMS -> Bitrix)
 $dataSrc_arms = [
-    'org_id' => 0,
-    'org' => ['src'=>'arms', 'ftype'=>'rest', 'path'=>$arms_api], //оргструктура
-    'usr' => ['src'=>'arms', 'ftype'=>'rest', 'path'=>$arms_api], //сотрудники
+	'org_id' => 0,
+	'org' => ['src'=>'arms', 'ftype'=>'rest', 'path'=>$arms_api], //оргструктура
+	'usr' => ['src'=>'arms', 'ftype'=>'rest', 'path'=>$arms_api], //сотрудники
 ];
 
-//режим dry-run для portal.php: НЕ писать в Bitrix, только логировать намеренные
-//изменения. Для аккуратной выкатки на прод: сначала прогнать с true, изучить лог.
+//РАСКЛАДКА ПОДРАЗДЕЛЕНИЙ SAP ПО ЮРЛИЦАМ (приём SAP -> ARMS):
+//  Objid корневого узла юрлица в дереве SAP => org_id организации в ARMS.
+//Организации (org_id) заводят администраторы ARMS вручную, здесь они связываются
+//с корнями оргструктуры SAP. Каждое подразделение и сотрудник получает org_id
+//того юрлица, под чьим корнем лежит в дереве (поиск предка). Узел вне корней
+//в инвентаризацию не попадает. При вложенных юрлицах более конкретное — НИЖЕ
+//по списку (выигрывает последнее совпадение).
+$inventoryOrgs = [
+	'10000001' => 1,   // Objid «Рога и копыта» в SAP      -> org_id 1 в ARMS
+	'10001128' => 2,   // Objid дочерней «Табуретки» в SAP -> org_id 2 в ARMS
+];
+
+//источники приёма в инвентаризацию (inventory-arms.php); src: 'sap' | 'c1'
+$inventory_import = [
+	'sources' => [
+		[   //SAP: оргструктура и сотрудники из одного JSON-кэша
+			'org' => ['src'=>'sap', 'ftype'=>'json', 'path'=>'/opt/SAPcache/cache/orgStruct.cache.json'],
+			'usr' => ['src'=>'sap', 'ftype'=>'json', 'path'=>'/opt/SAPcache/cache/orgStruct.cache.json'],
+		],
+	],
+];
+
+// ===== режим dry-run =====
+
+//true — inventory-arms.php и portal.php НИЧЕГО не пишут (в ARMS и Bitrix
+//соответственно), только логируют намеренные изменения. Для выкатки на прод:
+//сначала прогнать с true и изучить лог.
 $dryRun = true;
 
-// список групп Битрикс для включения в них всех пользователей
+// ===== внешний кэш SAP (скрипты вне репозитория) =====
+
+$sapCache        = '/opt/SAPcache/portal.php';                    //обновить кэш оргструктуры и сотрудников
+$sapCacheFile    = '/opt/SAPcache/cache/orgStruct.cache.json';    //куда он пишет (path источника sap выше)
+$sapCacheDir     = '/opt/SAPcache/cache/';                        //каталог кэшей (фотографии)
+$sapAbsenceCache = '/opt/SAPcache/absence.php';                   //обновить кэш отсутствий
+$sapAbsenceFile  = '/opt/SAPcache/cache/absence.cache.json';      //куда он пишет; закомментируйте, чтобы отключить приём отсутствий
+$sapPhotoCache   = '/opt/SAPcache/photo.php';                     //выгрузка фото одного сотрудника: <pernr> <файл>
+
+// ===== Bitrix (portal.php и сервисы портала) =====
+
+$bitrix_root = '/home/bitrix/www';
+
+//группы Битрикс для включения всех сотрудников
 $grpListAll = ['Сотрудники'];
 
-// список ключевых слов в должностях руководителей
+//ключевые слова в должностях руководителей
 $managersTitles = ['начальник','руководитель','директор'];
 
-// список групп Битрикс для включения в них руководителей
+//группы Битрикс для руководителей
 $grpListManagers = ['Могут создавать рабочие группы'];
 
-// адрес службы персонала для напоминаний о днях рождения (bDayReminder.php)
+//адрес службы персонала для напоминаний о днях рождения (bDayReminder.php)
 $bdayRemindMail = 'hr@example.com';
-
-// словарь соответствия завода сотрудника (поле Werks в SAP) названию организации
-// нужен, чтобы переопределить название, которое SAP отдает в поле NameF
-// используется только источниками типа 'sap'
-$factories=[
-    '1101'=>'ООО "Рога и копыта"',
-    '1102'=>'Филиал ООО "Рога и копыта" в г.Урюпинск',
-];
-
-$inventory=[
-    'ip'=>      '127.0.0.1',
-    'user'=>    'arms_user',
-    'passwd'=>  'password',
-    'db'=>      'arms_db',
-];
-
-
-// путь к JSON-кэшу выгрузки из SAP (оргструктура + сотрудники), который готовит
-// внешний SAP-прокси; отсюда его читает приём SAP -> ARMS
-$sapCacheFile = '/opt/SAPcache/cache/orgStruct.cache.json';
-
-// РАСКЛАДКА ПОДРАЗДЕЛЕНИЙ SAP ПО ЮРЛИЦАМ ИНВЕНТАРИЗАЦИИ:
-//   Objid корневого узла юрлица в дереве SAP  =>  org_id организации в ARMS
-//
-// Организации (org_id) заводят администраторы ARMS вручную; здесь администратор
-// связывает их с корнями оргструктуры SAP. Каждое подразделение и сотрудник получает
-// org_id того юрлица, под чьим корнем он лежит в дереве SAP (поиск предка, hasParent).
-// Узел, не лежащий ни под одним из корней, в инвентаризацию НЕ попадает.
-// При вложенных юрлицах более конкретное указывать НИЖЕ по списку (выигрывает
-// последнее совпадение).
-$inventoryOrgs = [
-    '10000001' => 1,   // Objid «Рога и копыта» в SAP        -> org_id 1 в ARMS
-    '10001128' => 2,   // Objid дочерней «Табуретки» в SAP   -> org_id 2 в ARMS
-];
-
-// источники для приёма в инвентаризацию (inventory-SAP.php / inventory-arms.php).
-// src может быть 'sap' или 'c1'; юрлицо каждого узла определяется по $inventoryOrgs
-$inventory_import = [
-    'sources' => [
-        [   // источник: SAP — оргструктура и сотрудники из одного JSON-кэша
-            'org' => ['src'=>'sap', 'ftype'=>'json', 'path'=>$sapCacheFile],
-            'usr' => ['src'=>'sap', 'ftype'=>'json', 'path'=>$sapCacheFile],
-        ],
-    ],
-    'fields' => [ // какие поля переносить (используется старым inventory-SAP.php)
-        'org_id','Orgeh','Doljnost','Ename','Bday','Persg',
-        'employ_date','resign_date','Uvolen','uid',
-    ],
-];
-
-?>

@@ -4,8 +4,7 @@ require_once dirname(__FILE__) . "/CArmsRestClient.php";
 /*
  * Запись данных в инвентаризацию ARMS через REST (плечо приёма SAP/1C -> ARMS).
  *
- * Заменяет прямые SQL-INSERT/UPDATE (inventory-SAP.php / inventory-1C.php) на
- * идемпотентный upsert по натуральному ключу: поиск существующей записи, затем
+ * Идемпотентный upsert по натуральному ключу: поиск существующей записи, затем
  * POST (создать) или PUT (обновить). Пишущая логика вынесена сюда, транспорт —
  * в CArmsRestClient.
  *
@@ -66,14 +65,19 @@ class CArmsWriter {
 	 * Upsert сотрудника по (org_id, employee_id).
 	 * @param array $fields поля ARMS (employee_id, Orgeh, Doljnost, Ename, Persg,
 	 *                      Uvolen(0/1), Bday, uid, ... ) — org_id проставляется тут
+	 * @param mixed $knownId id существующей записи, если вызывающий уже знает его
+	 *                       из карты (fetchUsersMap): null — записи точно нет,
+	 *                       false — неизвестно (сходить в /search)
 	 * @return mixed id записи ARMS (или null в dry-run при создании)
 	 */
-	public function upsertUser($orgId, array $fields) {
+	public function upsertUser($orgId, array $fields, $knownId = false) {
 		$body = $fields + ['org_id' => $orgId];
-		$existing = $this->client->findOne('users', [
-			'org_id'      => $orgId,
-			'employee_id' => $fields['employee_id'],
-		]);
+		$existing = ($knownId === false)
+			? $this->client->findOne('users', [
+				'org_id'      => $orgId,
+				'employee_id' => $fields['employee_id'],
+			])
+			: (is_null($knownId) ? null : ['id' => $knownId]);
 		if (!is_null($existing)) {
 			$id = $existing['id'];
 			if ($this->dryRun) { echo "[DRY] PUT users/$id (emp {$fields['employee_id']})\n"; return $id; }
@@ -87,7 +91,7 @@ class CArmsWriter {
 
 	/*
 	 * Карта табельный (employee_id) => id записи ARMS по всем сотрудникам.
-	 * Табельный уникален между организациями (см. inventory-SAP.php).
+	 * Табельный уникален между организациями.
 	 */
 	public function fetchUsersMap(): array {
 		$map = [];
@@ -99,13 +103,17 @@ class CArmsWriter {
 	/*
 	 * Upsert отсутствия по ключу идемпотентности (source, external_id).
 	 * @param array $fields поля ARMS: user_id, type, date_from, date_to, comment, source, external_id
+	 * @param mixed $knownId id существующей записи из карты (fetchAbsenceMap):
+	 *                       null — записи точно нет, false — неизвестно (в /search)
 	 * @return mixed id записи ARMS (или null в dry-run при создании)
 	 */
-	public function upsertAbsence(array $fields) {
-		$existing = $this->client->findOne('absences', [
-			'source'      => $fields['source'],
-			'external_id' => $fields['external_id'],
-		]);
+	public function upsertAbsence(array $fields, $knownId = false) {
+		$existing = ($knownId === false)
+			? $this->client->findOne('absences', [
+				'source'      => $fields['source'],
+				'external_id' => $fields['external_id'],
+			])
+			: (is_null($knownId) ? null : ['id' => $knownId]);
 		if (!is_null($existing)) {
 			$id = $existing['id'];
 			if ($this->dryRun) { echo "[DRY] PUT absences/$id ({$fields['external_id']})\n"; return $id; }

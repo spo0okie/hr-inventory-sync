@@ -8,11 +8,11 @@ require_once dirname(__FILE__) . "/../SAP/CSapAbsentsStructure.php";
  *
  * Читает уже загруженные объекты оргструктуры и сотрудников (COrgStructureStorage:
  * getParent/hasParent/getItem...) и заливает их в ARMS через CArmsWriter (upsert по
- * натуральному ключу). Это REST-замена прямых SQL-INSERT/UPDATE из inventory-SAP.php.
+ * натуральному ключу).
  *
- * Разложение по юрлицам — как в inventory-SAP.php: $inventoryOrgs сопоставляет
- * Objid верхнего узла SAP с org_id в ARMS; для каждого узла/сотрудника юрлицо
- * определяется поиском такого предка (hasParent).
+ * Разложение по юрлицам: $inventoryOrgs сопоставляет Objid верхнего узла SAP с
+ * org_id в ARMS; для каждого узла/сотрудника юрлицо определяется поиском такого
+ * предка (hasParent).
  */
 class CArmsIngest {
 
@@ -148,7 +148,7 @@ class CArmsIngest {
 				'comment'     => $comment,
 				'source'      => 'sap',
 				'external_id' => $id,
-			]);
+			], $existing[$id] ?? null);
 			$seen[$id] = true;
 			$processed++;
 		}
@@ -222,6 +222,8 @@ class CArmsIngest {
 	 * @return array счётчики [processed, skipped]
 	 */
 	public function ingestUsers($sapUsers, $sapOrg, $limit = null): array {
+		//карта существующих сотрудников — чтобы не ходить в /search на каждую запись
+		$empMap = $this->writer->fetchUsersMap();
 		$processed = 0; $skipped = 0;
 		foreach ($sapUsers->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
@@ -240,7 +242,7 @@ class CArmsIngest {
 				'employ_date' => $u['Employ_date'] ?? null,
 				'resign_date' => $u['Resign_date'] ?? null,
 			];
-			$this->writer->upsertUser($orgId, $fields);
+			$this->writer->upsertUser($orgId, $fields, $empMap[(string)$u['Pernr']] ?? null);
 			$processed++;
 		}
 		return ['processed' => $processed, 'skipped' => $skipped];

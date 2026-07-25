@@ -68,11 +68,11 @@ while($ob = $usrList->GetNext(false,false)) if (is_array($ob['UF_ABSENCE_SUBSCR'
             $usr=CUser::GetList($by,$sort,['ID'=>$item])->Fetch();
             //print_r($found);
             //print_r($usr);
-            $notice.="Послезавтра у сотрудника ${usr['LAST_NAME']} ${usr['NAME']} начинается ${found['NAME']} (${found['DATE_ACTIVE_FROM']} - ${found['DATE_ACTIVE_TO']})\n";
+            $notice.="Послезавтра у сотрудника {$usr['LAST_NAME']} {$usr['NAME']} начинается {$found['NAME']} ({$found['DATE_ACTIVE_FROM']} - {$found['DATE_ACTIVE_TO']})\n";
         }
     }
     if (strlen($notice)) {
-		echo "Sending notice to ${ob['EMAIL']}, Напоминание о скором отсутствии ваших коллег : $notice";
+		echo "Sending notice to {$ob['EMAIL']}, Напоминание о скором отсутствии ваших коллег : $notice";
 		if (mail($ob['EMAIL'],'Напоминание о скором отсутствии ваших коллег',$notice,"Content-type: text/plain; charset=utf-8 \r\n")) {
 			echo "sucess\n;";
 		} else {

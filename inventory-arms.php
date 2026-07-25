@@ -1,8 +1,8 @@
 #!/usr/bin/php
 <?php
 /*
- * Приём оргструктуры и сотрудников из источника (SAP/1C) в инвентаризацию ARMS
- * через REST API. REST-замена inventory-SAP.php (который писал напрямую в SQL).
+ * Приём оргструктуры, сотрудников, отсутствий и фотографий из источника (SAP,
+ * в перспективе 1C) в инвентаризацию ARMS через REST API.
  * Запускать из корня репозитория.
  *
  * Источник(и) и разложение по юрлицам берутся из конфига:
@@ -30,6 +30,16 @@ $ingest = new CArmsIngest($writer, $inventoryOrgs);
 
 //режим photos: дополнительно синхронизировать фотографии сотрудников
 $withPhotos = in_array('photos', $argv);
+
+//обновляем JSON-кэши выгрузок SAP (скрипты вне репозитория, пути в конфиге)
+if (isset($sapCache) && strlen($sapCache)) {
+	echo "Refreshing SAP cache...\n";
+	system($sapCache);
+}
+if (isset($sapAbsenceCache) && strlen($sapAbsenceCache) && isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
+	echo "Refreshing SAP absence cache...\n";
+	system($sapAbsenceCache);
+}
 
 foreach ($inventory_import['sources'] as $dataSrc) {
 	$sapOrg = initOrgStructure($dataSrc);
