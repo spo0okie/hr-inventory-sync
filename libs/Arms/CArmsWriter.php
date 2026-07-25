@@ -219,11 +219,12 @@ class CArmsWriter {
 		}
 
 		if (!$have) {
-			$blob = $getBlob();
-			if (is_null($blob) || !strlen($blob)) return 'fetch_failed'; //старые фото не трогаем
 			if ($this->dryRun) {
-				echo "[DRY] upload scans/$want.jpg (user $userId)\n";
+				//в dry-run бинарник у SAP не запрашивается — печатаем только намерение
+				echo "[DRY] upload scans/$want.jpg (user $userId, фото от $date)\n";
 			} else {
+				$blob = $getBlob();
+				if (is_null($blob) || !strlen($blob)) return 'fetch_failed'; //старые фото не трогаем
 				$tmp = tempnam(sys_get_temp_dir(), 'sapph');
 				file_put_contents($tmp, $blob);
 				try {

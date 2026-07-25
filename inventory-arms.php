@@ -60,7 +60,9 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']} (из них усыновлено ручных {$ru['adopted']}), " .
 		"без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
 
-	if ($withPhotos) {
+	if (!$withPhotos) {
+		echo "Photos: пропущено (синхронизация фото — запуск с ключом photos)\n";
+	} else {
 		echo "Ingesting photos...\n";
 		//бинарник фото запрашивается у SAP только для тех, у кого дата обновилась
 		$photoFetcher = function ($pernr) use ($sapPhotoCache, $sapCacheDir) {
