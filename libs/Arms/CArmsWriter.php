@@ -4,13 +4,16 @@ require_once dirname(__FILE__) . "/CArmsRestClient.php";
 /*
  * Запись данных в инвентаризацию ARMS через REST (плечо приёма SAP/1C -> ARMS).
  *
- * Идемпотентный upsert по натуральному ключу: поиск существующей записи, затем
- * POST (создать) или PUT (обновить). Пишущая логика вынесена сюда, транспорт —
- * в CArmsRestClient.
+ * Идемпотентный upsert по натуральному ключу с локальным сравнением: существующие
+ * записи загружаются пачкой (fetch*Map, ключ => полная запись), каждая новая
+ * сравнивается с текущей по полям, и PUT уходит только при реальных отличиях.
+ * В dry-run печатается диф полей ("поле: 'старое' -> 'новое'") — по нему видно,
+ * что именно изменит боевой прогон.
  *
  * Ключи:
  *  - оргструктура: (org_id, hr_id) — уникальна в модели ARMS;
- *  - сотрудник:    (org_id, employee_id) — трудоустройство.
+ *  - сотрудник:    (org_id, employee_id) — трудоустройство;
+ *  - отсутствие:   (source, external_id).
  *
  * Признак увольнения на границе: внутренний boolean -> число 0/1 для ARMS.
  */
@@ -26,21 +29,42 @@ class CArmsWriter {
 	}
 
 	/*
-	 * Карта hr_id => id записи ARMS для организации (для upsert оргструктуры без
-	 * запроса на каждый узел; фильтра по hr_id в API нет, поэтому тянем всю орг).
+	 * Отличия $new от $old по полям $new (сравнение строковое, null == '').
+	 * @return array поле => [старое, новое]
+	 */
+	public static function diff(array $new, array $old): array {
+		$changes = [];
+		foreach ($new as $k => $v) {
+			$oldV = $old[$k] ?? null;
+			if ((string)($v ?? '') !== (string)($oldV ?? '')) $changes[$k] = [$oldV, $v];
+		}
+		return $changes;
+	}
+
+	/* Диф в человекочитаемую строку: поле: 'старое' -> 'новое', ... */
+	public static function diffText(array $changes): string {
+		$parts = [];
+		foreach ($changes as $k => [$old, $new])
+			$parts[] = "$k: '" . ($old ?? '') . "' -> '" . ($new ?? '') . "'";
+		return implode(', ', $parts);
+	}
+
+	/*
+	 * Существующие подразделения организации: hr_id => полная запись.
+	 * (фильтра по hr_id в API нет, поэтому тянем организацию целиком)
 	 */
 	public function fetchOrgMap($orgId): array {
 		$map = [];
 		foreach ($this->client->getAll('org-struct', ['org_id' => $orgId]) as $r)
-			$map[(string)$r['hr_id']] = $r['id'];
+			$map[(string)$r['hr_id']] = $r;
 		return $map;
 	}
 
 	/*
 	 * Upsert подразделения. $existingByHr — карта из fetchOrgMap(), обновляется на месте.
-	 * @return mixed id записи ARMS (или null в dry-run при создании)
+	 * @return array ['id' => mixed, 'action' => 'created'|'updated'|'ok']
 	 */
-	public function upsertOrgStruct($orgId, $hrId, $name, $parentHr, array &$existingByHr) {
+	public function upsertOrgStruct($orgId, $hrId, $name, $parentHr, array &$existingByHr): array {
 		$hrId = (string)$hrId;
 		$body = [
 			'org_id'       => $orgId,
@@ -49,91 +73,112 @@ class CArmsWriter {
 			'name'         => $name,
 		];
 		if (isset($existingByHr[$hrId])) {
-			$id = $existingByHr[$hrId];
-			if ($this->dryRun) { echo "[DRY] PUT org-struct/$id (hr=$hrId, name=$name)\n"; return $id; }
-			$this->client->update('org-struct', $id, $body);
-			return $id;
+			$row = $existingByHr[$hrId];
+			$id = $row['id'];
+			$changes = static::diff($body, $row);
+			if (!count($changes)) return ['id' => $id, 'action' => 'ok'];
+			if ($this->dryRun) {
+				echo "[DRY] PUT org-struct/$id (hr=$hrId): " . static::diffText($changes) . "\n";
+			} else {
+				$this->client->update('org-struct', $id, $body);
+			}
+			return ['id' => $id, 'action' => 'updated'];
 		}
-		if ($this->dryRun) { echo "[DRY] POST org-struct (hr=$hrId, name=$name)\n"; return null; }
+		if ($this->dryRun) {
+			echo "[DRY] POST org-struct (hr=$hrId, name=$name)\n";
+			return ['id' => null, 'action' => 'created'];
+		}
 		$res = $this->client->create('org-struct', $body);
 		$id = $res['id'] ?? null;
-		if (!is_null($id)) $existingByHr[$hrId] = $id;
-		return $id;
+		if (!is_null($id)) $existingByHr[$hrId] = $res;
+		return ['id' => $id, 'action' => 'created'];
 	}
 
 	/*
-	 * Upsert сотрудника по (org_id, employee_id).
-	 * @param array $fields поля ARMS (employee_id, Orgeh, Doljnost, Ename, Persg,
-	 *                      Uvolen(0/1), Bday, uid, ... ) — org_id проставляется тут
-	 * @param mixed $knownId id существующей записи, если вызывающий уже знает его
-	 *                       из карты (fetchUsersMap): null — записи точно нет,
-	 *                       false — неизвестно (сходить в /search)
-	 * @return mixed id записи ARMS (или null в dry-run при создании)
-	 */
-	public function upsertUser($orgId, array $fields, $knownId = false) {
-		$body = $fields + ['org_id' => $orgId];
-		$existing = ($knownId === false)
-			? $this->client->findOne('users', [
-				'org_id'      => $orgId,
-				'employee_id' => $fields['employee_id'],
-			])
-			: (is_null($knownId) ? null : ['id' => $knownId]);
-		if (!is_null($existing)) {
-			$id = $existing['id'];
-			if ($this->dryRun) { echo "[DRY] PUT users/$id (emp {$fields['employee_id']})\n"; return $id; }
-			$this->client->update('users', $id, $body);
-			return $id;
-		}
-		if ($this->dryRun) { echo "[DRY] POST users (emp {$fields['employee_id']})\n"; return null; }
-		$res = $this->client->create('users', $body);
-		return $res['id'] ?? null;
-	}
-
-	/*
-	 * Карта табельный (employee_id) => id записи ARMS по всем сотрудникам.
+	 * Существующие сотрудники: employee_id => полная запись.
 	 * Табельный уникален между организациями.
 	 */
 	public function fetchUsersMap(): array {
 		$map = [];
 		foreach ($this->client->getAll('users') as $r)
-			$map[(string)$r['employee_id']] = $r['id'];
+			$map[(string)$r['employee_id']] = $r;
+		return $map;
+	}
+
+	/*
+	 * Upsert сотрудника по (org_id, employee_id).
+	 * @param array $fields поля ARMS (employee_id, Orgeh, Doljnost, Ename, Persg,
+	 *                      Uvolen(0/1), Bday, uid, ...) — org_id проставляется тут
+	 * @param mixed $known  запись из карты (fetchUsersMap): null — записи точно нет,
+	 *                      false — неизвестно (сходить в /search)
+	 * @return array ['id' => mixed, 'action' => 'created'|'updated'|'ok']
+	 */
+	public function upsertUser($orgId, array $fields, $known = false): array {
+		$body = $fields + ['org_id' => $orgId];
+		if ($known === false)
+			$known = $this->client->findOne('users', [
+				'org_id'      => $orgId,
+				'employee_id' => $fields['employee_id'],
+			]);
+		if (is_array($known)) {
+			$id = $known['id'];
+			$changes = static::diff($body, $known);
+			if (!count($changes)) return ['id' => $id, 'action' => 'ok'];
+			if ($this->dryRun) {
+				echo "[DRY] PUT users/$id (emp {$fields['employee_id']}): " . static::diffText($changes) . "\n";
+			} else {
+				$this->client->update('users', $id, $body);
+			}
+			return ['id' => $id, 'action' => 'updated'];
+		}
+		if ($this->dryRun) {
+			echo "[DRY] POST users (emp {$fields['employee_id']}, {$fields['Ename']})\n";
+			return ['id' => null, 'action' => 'created'];
+		}
+		$res = $this->client->create('users', $body);
+		return ['id' => $res['id'] ?? null, 'action' => 'created'];
+	}
+
+	/*
+	 * Существующие отсутствия источника: external_id => полная запись.
+	 */
+	public function fetchAbsenceMap(string $source): array {
+		$map = [];
+		foreach ($this->client->getAll('absences', ['source' => $source]) as $r)
+			$map[(string)$r['external_id']] = $r;
 		return $map;
 	}
 
 	/*
 	 * Upsert отсутствия по ключу идемпотентности (source, external_id).
-	 * @param array $fields поля ARMS: user_id, type, date_from, date_to, comment, source, external_id
-	 * @param mixed $knownId id существующей записи из карты (fetchAbsenceMap):
-	 *                       null — записи точно нет, false — неизвестно (в /search)
-	 * @return mixed id записи ARMS (или null в dry-run при создании)
+	 * @param array $fields user_id, type, date_from, date_to, comment, source, external_id
+	 * @param mixed $known  запись из карты (fetchAbsenceMap): null — записи точно нет,
+	 *                      false — неизвестно (в /search)
+	 * @return array ['id' => mixed, 'action' => 'created'|'updated'|'ok']
 	 */
-	public function upsertAbsence(array $fields, $knownId = false) {
-		$existing = ($knownId === false)
-			? $this->client->findOne('absences', [
+	public function upsertAbsence(array $fields, $known = false): array {
+		if ($known === false)
+			$known = $this->client->findOne('absences', [
 				'source'      => $fields['source'],
 				'external_id' => $fields['external_id'],
-			])
-			: (is_null($knownId) ? null : ['id' => $knownId]);
-		if (!is_null($existing)) {
-			$id = $existing['id'];
-			if ($this->dryRun) { echo "[DRY] PUT absences/$id ({$fields['external_id']})\n"; return $id; }
-			$this->client->update('absences', $id, $fields);
-			return $id;
+			]);
+		if (is_array($known)) {
+			$id = $known['id'];
+			$changes = static::diff($fields, $known);
+			if (!count($changes)) return ['id' => $id, 'action' => 'ok'];
+			if ($this->dryRun) {
+				echo "[DRY] PUT absences/$id ({$fields['external_id']}): " . static::diffText($changes) . "\n";
+			} else {
+				$this->client->update('absences', $id, $fields);
+			}
+			return ['id' => $id, 'action' => 'updated'];
 		}
-		if ($this->dryRun) { echo "[DRY] POST absences ({$fields['external_id']})\n"; return null; }
+		if ($this->dryRun) {
+			echo "[DRY] POST absences ({$fields['external_id']}: {$fields['type']} {$fields['date_from']}..{$fields['date_to']})\n";
+			return ['id' => null, 'action' => 'created'];
+		}
 		$res = $this->client->create('absences', $fields);
-		return $res['id'] ?? null;
-	}
-
-	/*
-	 * Все отсутствия источника (для обратного прохода).
-	 * @return array external_id => id записи ARMS
-	 */
-	public function fetchAbsenceMap(string $source): array {
-		$map = [];
-		foreach ($this->client->getAll('absences', ['source' => $source]) as $r)
-			$map[(string)$r['external_id']] = $r['id'];
-		return $map;
+		return ['id' => $res['id'] ?? null, 'action' => 'created'];
 	}
 
 	/*

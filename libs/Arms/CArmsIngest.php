@@ -37,26 +37,27 @@ class CArmsIngest {
 
 	/*
 	 * Приём оргструктуры. Objid(SAP) -> hr_id(ARMS), Orgtx -> name, родитель -> parent_hr_id.
-	 * @return array счётчики [processed, skipped]
+	 * Существующие записи сравниваются локально, PUT только при отличиях.
+	 * @return array счётчики [created, updated, ok, skipped]
 	 */
 	public function ingestOrgStruct($sapOrg): array {
-		//карты hr_id=>id по каждому юрлицу (чтобы upsert решал POST/PUT без запроса на узел)
+		//карты hr_id=>запись по каждому юрлицу (сравнение пачкой, без запроса на узел)
 		$maps = [];
 		foreach (array_unique(array_values($this->inventoryOrgs)) as $orgId)
 			$maps[$orgId] = $this->writer->fetchOrgMap($orgId);
 
-		$processed = 0; $skipped = 0;
+		$c = ['created' => 0, 'updated' => 0, 'ok' => 0, 'skipped' => 0];
 		foreach ($sapOrg->getIds() as $id) {
 			$orgId = $this->orgIdFor($sapOrg, $id);
-			if (!$orgId) { $skipped++; continue; }
+			if (!$orgId) { $c['skipped']++; continue; }
 			$hr = $sapOrg->getItemField($id, 'Objid');
 			$name = $sapOrg->getItemField($id, 'Orgtx');
 			$parent = $sapOrg->getParent($id);
 			$parentHr = $parent ? $sapOrg->getItemField($parent, 'Objid') : '';
-			$this->writer->upsertOrgStruct($orgId, $hr, $name, $parentHr, $maps[$orgId]);
-			$processed++;
+			$res = $this->writer->upsertOrgStruct($orgId, $hr, $name, $parentHr, $maps[$orgId]);
+			$c[$res['action']]++;
 		}
-		return ['processed' => $processed, 'skipped' => $skipped];
+		return $c;
 	}
 
 	/*
@@ -116,12 +117,13 @@ class CArmsIngest {
 	public function ingestAbsences($sapAbsents, $limit = null): array {
 		//карта табельный -> id ARMS по всем сотрудникам (табельник уникален между орг-ми)
 		$empMap = [];
-		foreach ($this->writer->fetchUsersMap() as $emp => $uid) $empMap[$emp] = $uid;
+		foreach ($this->writer->fetchUsersMap() as $emp => $row) $empMap[$emp] = $row['id'];
 
-		//карта уже существующих в ARMS отсутствий источника sap
+		//карта уже существующих в ARMS отсутствий источника sap (для сравнения пачкой)
 		$existing = $this->writer->fetchAbsenceMap('sap');
 		$seen = [];
 
+		$c = ['created' => 0, 'updated' => 0, 'ok' => 0];
 		$processed = 0; $skippedUser = 0; $skippedType = 0;
 		foreach ($sapAbsents->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
@@ -140,7 +142,7 @@ class CArmsIngest {
 			//выгрузка в Bitrix использует его как название; для прочих — текст источника
 			$comment = ($code === 'ASSIGNMENT') ? static::tripComment($a) : ($a['Abstext'] ?? null);
 
-			$this->writer->upsertAbsence([
+			$res = $this->writer->upsertAbsence([
 				'user_id'     => $userId,
 				'type'        => $code,
 				'date_from'   => $a['Begda'],
@@ -149,6 +151,7 @@ class CArmsIngest {
 				'source'      => 'sap',
 				'external_id' => $id,
 			], $existing[$id] ?? null);
+			$c[$res['action']]++;
 			$seen[$id] = true;
 			$processed++;
 		}
@@ -157,16 +160,15 @@ class CArmsIngest {
 		//(только при полном проходе — с limit сверка была бы ложной)
 		$removed = 0;
 		if (is_null($limit)) {
-			foreach ($existing as $extId => $armsId) {
+			foreach ($existing as $extId => $row) {
 				if (!isset($seen[$extId]) && !$sapAbsents->exist($extId)) {
-					$this->writer->delete('absences', $armsId);
+					$this->writer->delete('absences', $row['id']);
 					$removed++;
 				}
 			}
 		}
 
-		return [
-			'processed'   => $processed,
+		return $c + [
 			'skippedUser' => $skippedUser,
 			'skippedType' => $skippedType,
 			'removed'     => $removed,
@@ -201,7 +203,7 @@ class CArmsIngest {
 			if (!strlen($date) || $date === '0000-00-00') { $noPhoto++; continue; }
 			if (is_null($this->orgIdFor($sapOrg, $u['Orgeh'] ?? ''))) { $skippedOrg++; continue; }
 			$pernr = (string)$u['Pernr'];
-			$userId = $empMap[$pernr] ?? null;
+			$userId = isset($empMap[$pernr]) ? $empMap[$pernr]['id'] : null;
 			if (is_null($userId)) { $skippedUser++; continue; }
 
 			$checked++;
@@ -218,18 +220,20 @@ class CArmsIngest {
 
 	/*
 	 * Приём сотрудников. Признак увольнения на границе: внутренний 'Уволен'/'' -> 0/1.
+	 * Существующие записи сравниваются локально, PUT только при отличиях.
 	 * @param int|null $limit ограничение числа записей (для тестов)
-	 * @return array счётчики [processed, skipped]
+	 * @return array счётчики [created, updated, ok, skipped]
 	 */
 	public function ingestUsers($sapUsers, $sapOrg, $limit = null): array {
-		//карта существующих сотрудников — чтобы не ходить в /search на каждую запись
+		//карта существующих сотрудников (сравнение пачкой, без /search на запись)
 		$empMap = $this->writer->fetchUsersMap();
-		$processed = 0; $skipped = 0;
+		$c = ['created' => 0, 'updated' => 0, 'ok' => 0, 'skipped' => 0];
+		$processed = 0;
 		foreach ($sapUsers->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
 			$u = $sapUsers->getItem($id);
 			$orgId = $this->orgIdFor($sapOrg, $u['Orgeh'] ?? '');
-			if (!$orgId) { $skipped++; continue; }
+			if (!$orgId) { $c['skipped']++; continue; }
 			$fields = [
 				'employee_id' => (string)$u['Pernr'],
 				'Orgeh'       => (string)($u['Orgeh'] ?? ''),
@@ -242,9 +246,10 @@ class CArmsIngest {
 				'employ_date' => $u['Employ_date'] ?? null,
 				'resign_date' => $u['Resign_date'] ?? null,
 			];
-			$this->writer->upsertUser($orgId, $fields, $empMap[(string)$u['Pernr']] ?? null);
+			$res = $this->writer->upsertUser($orgId, $fields, $empMap[(string)$u['Pernr']] ?? null);
+			$c[$res['action']]++;
 			$processed++;
 		}
-		return ['processed' => $processed, 'skipped' => $skipped];
+		return $c;
 	}
 }

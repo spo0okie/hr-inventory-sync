@@ -53,11 +53,11 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 
 	echo "Ingesting org structure...\n";
 	$ro = $ingest->ingestOrgStruct($sapOrg);
-	echo "  org: обработано {$ro['processed']}, пропущено {$ro['skipped']}\n";
+	echo "  org: создано {$ro['created']}, обновлено {$ro['updated']}, без изменений {$ro['ok']}, вне юрлиц {$ro['skipped']}\n";
 
 	echo "Ingesting users...\n";
 	$ru = $ingest->ingestUsers($sapUsers, $sapOrg);
-	echo "  users: обработано {$ru['processed']}, пропущено {$ru['skipped']}\n";
+	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']}, без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
 
 	if ($withPhotos) {
 		echo "Ingesting photos...\n";
@@ -88,8 +88,9 @@ if (isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
 
 	echo "Ingesting absences...\n";
 	$ra = $ingest->ingestAbsences($sapAbsents);
-	echo "  absences: обработано {$ra['processed']}, удалено исчезнувших {$ra['removed']}, " .
-		"пропущено: без сотрудника в ARMS {$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}\n";
+	echo "  absences: создано {$ra['created']}, обновлено {$ra['updated']}, без изменений {$ra['ok']}, " .
+		"удалено исчезнувших {$ra['removed']}, пропущено: без сотрудника в ARMS {$ra['skippedUser']}, " .
+		"с неизвестным типом {$ra['skippedType']}\n";
 }
 
 echo date('c') . " Script complete\n";
