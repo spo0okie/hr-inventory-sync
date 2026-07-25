@@ -218,16 +218,59 @@ class CArmsIngest {
 		];
 	}
 
+	/* Нормализация ФИО для сопоставления: регистр, ё->е, лишние пробелы. */
+	public static function normName($name): string {
+		$n = mb_strtolower(trim((string)$name));
+		$n = str_replace('ё', 'е', $n);
+		return preg_replace('/\s+/u', ' ', $n);
+	}
+
 	/*
 	 * Приём сотрудников. Признак увольнения на границе: внутренний 'Уволен'/'' -> 0/1.
 	 * Существующие записи сравниваются локально, PUT только при отличиях.
+	 *
+	 * Сопоставление с существующими записями ARMS: наличие ключа у записи делает
+	 * его единственно допустимым способом её сматчить.
+	 *   - запись с табельником (employee_id) матчится ТОЛЬКО по табельнику;
+	 *   - запись без табельника, но с uid (хеш СНИЛС) — ТОЛЬКО по uid;
+	 *   - запись без табельника и без uid — по ФИО;
+	 *   - никто не сматчился — создаётся новая запись.
+	 * Матч по uid/ФИО (усыновление заведённых вручную) — в пределах организации
+	 * и только однозначный (двое ручных с одинаковым ФИО -> обе не усыновляются).
+	 * Подготовка данных при подключении организации — см. README: неправильные
+	 * кадровые ключи у ручных записей нужно очистить, выдуманный табельник может
+	 * ложно сматчиться с настоящим.
+	 *
 	 * @param int|null $limit ограничение числа записей (для тестов)
-	 * @return array счётчики [created, updated, ok, skipped]
+	 * @return array счётчики [created, updated, adopted, ok, skipped]
 	 */
 	public function ingestUsers($sapUsers, $sapOrg, $limit = null): array {
-		//карта существующих сотрудников (сравнение пачкой, без /search на запись)
-		$empMap = $this->writer->fetchUsersMap();
-		$c = ['created' => 0, 'updated' => 0, 'ok' => 0, 'skipped' => 0];
+		//все существующие сотрудники одной выборкой (сравнение пачкой, без /search)
+		$rows = $this->writer->fetchUsers();
+
+		//карта по табельнику + карты кандидатов на усыновление (записи без табельника);
+		//ключи карт кандидатов — "org|значение", false = неоднозначно (двое и больше)
+		$empMap = []; $byUid = []; $byName = [];
+		foreach ($rows as $row) {
+			$emp = (string)($row['employee_id'] ?? '');
+			if (strlen($emp)) { $empMap[$emp] = $row; continue; } //есть табельник — матч только по нему
+			$org = $row['org_id'];
+			$uid = (string)($row['uid'] ?? '');
+			if (strlen($uid)) {
+				//есть uid — матч только по uid, по ФИО такую запись не ищем
+				$k = $org . '|' . $uid;
+				$byUid[$k] = isset($byUid[$k]) ? false : $row;
+				continue;
+			}
+			$nn = static::normName($row['Ename'] ?? '');
+			if (strlen($nn)) {
+				$k = $org . '|' . $nn;
+				$byName[$k] = isset($byName[$k]) ? false : $row;
+			}
+		}
+		$claimed = []; //ручные записи, уже усыновлённые в этом прогоне
+
+		$c = ['created' => 0, 'updated' => 0, 'adopted' => 0, 'ok' => 0, 'skipped' => 0];
 		$processed = 0;
 		foreach ($sapUsers->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
@@ -246,7 +289,32 @@ class CArmsIngest {
 				'employ_date' => $u['Employ_date'] ?? null,
 				'resign_date' => $u['Resign_date'] ?? null,
 			];
-			$res = $this->writer->upsertUser($orgId, $fields, $empMap[(string)$u['Pernr']] ?? null);
+			//цепочка сопоставления: табельник -> uid -> ФИО -> новый
+			$pernr = (string)$u['Pernr'];
+			$known = $empMap[$pernr] ?? null;
+			if (is_null($known)) {
+				$adopted = null; $how = '';
+				$uid = (string)($u['uid'] ?? '');
+				if (strlen($uid)) {
+					$cand = $byUid[$orgId . '|' . $uid] ?? null;
+					if (is_array($cand) && !isset($claimed[$cand['id']])) { $adopted = $cand; $how = 'uid'; }
+				}
+				if (is_null($adopted)) {
+					$nn = static::normName($u['Ename'] ?? '');
+					if (strlen($nn)) {
+						$cand = $byName[$orgId . '|' . $nn] ?? null;
+						if (is_array($cand) && !isset($claimed[$cand['id']])) { $adopted = $cand; $how = 'ФИО'; }
+					}
+				}
+				if (!is_null($adopted)) {
+					$claimed[$adopted['id']] = true;
+					$known = $adopted;
+					echo "[ADOPT] ARMS #{$adopted['id']} '{$adopted['Ename']}' (emp '{$adopted['employee_id']}') <- табельный $pernr (по $how)\n";
+					$c['adopted']++;
+				}
+			}
+
+			$res = $this->writer->upsertUser($orgId, $fields, $known);
 			$c[$res['action']]++;
 			$processed++;
 		}

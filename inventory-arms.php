@@ -57,7 +57,8 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 
 	echo "Ingesting users...\n";
 	$ru = $ingest->ingestUsers($sapUsers, $sapOrg);
-	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']}, без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
+	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']} (из них усыновлено ручных {$ru['adopted']}), " .
+		"без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
 
 	if ($withPhotos) {
 		echo "Ingesting photos...\n";

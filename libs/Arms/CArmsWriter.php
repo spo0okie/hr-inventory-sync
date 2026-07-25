@@ -95,13 +95,21 @@ class CArmsWriter {
 	}
 
 	/*
+	 * Все существующие сотрудники (полные записи, включая записи без табельника).
+	 */
+	public function fetchUsers(): array {
+		return $this->client->getAll('users');
+	}
+
+	/*
 	 * Существующие сотрудники: employee_id => полная запись.
-	 * Табельный уникален между организациями.
+	 * Табельный уникален между организациями. Записи без табельника в карту
+	 * не попадают (их адресуют по uid/ФИО, см. CArmsIngest::ingestUsers).
 	 */
 	public function fetchUsersMap(): array {
 		$map = [];
-		foreach ($this->client->getAll('users') as $r)
-			$map[(string)$r['employee_id']] = $r;
+		foreach ($this->fetchUsers() as $r)
+			if (strlen((string)$r['employee_id'])) $map[(string)$r['employee_id']] = $r;
 		return $map;
 	}
 
