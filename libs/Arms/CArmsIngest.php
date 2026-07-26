@@ -207,7 +207,14 @@ class CArmsIngest {
 			if (is_null($userId)) { $skippedUser++; continue; }
 
 			$checked++;
-			$res = $this->writer->syncUserPhoto($userId, $pernr, $date, fn() => $photoFetcher($pernr));
+			//ошибка одного фото (лимиты загрузки, битый файл) не должна ронять весь прогон
+			try {
+				$res = $this->writer->syncUserPhoto($userId, $pernr, $date, fn() => $photoFetcher($pernr));
+			} catch (RuntimeException $e) {
+				echo "  фото $pernr: ОШИБКА: " . $e->getMessage() . "\n";
+				$failed++;
+				continue;
+			}
 			if ($res === 'ok') $ok++;
 			elseif ($res === 'updated') $updated++;
 			else $failed++;

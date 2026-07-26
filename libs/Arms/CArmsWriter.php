@@ -245,11 +245,20 @@ class CArmsWriter {
 			} else {
 				$blob = $getBlob();
 				if (is_null($blob) || !strlen($blob)) return 'fetch_failed'; //старые фото не трогаем
+				//расширение — по фактическому содержимому: валидатор ARMS сверяет
+				//расширение имени с MIME файла, несовпадение (SAP может отдать не-JPEG) режется
+				$ext = static::imageExt($blob);
 				$tmp = tempnam(sys_get_temp_dir(), 'sapph');
 				file_put_contents($tmp, $blob);
 				try {
-					$res = $this->client->uploadFile('scans/upload', $tmp, "$want.jpg", ['users_id' => $userId]);
-					if (!isset($res['id'])) throw new RuntimeException('upload не вернул id: ' . json_encode($res, JSON_UNESCAPED_UNICODE));
+					$res = $this->client->uploadFile('scans/upload', $tmp, "$want.$ext", ['users_id' => $userId]);
+					if (!isset($res['id']))
+						//размер в сообщении: «Загрузите файл» при непустом файле обычно
+						//означает лимиты PHP на стороне ARMS (upload_max_filesize/post_max_size/file_uploads)
+						throw new RuntimeException(
+							"upload $want.$ext (" . strlen($blob) . " байт) не вернул id: " .
+							json_encode($res, JSON_UNESCAPED_UNICODE)
+						);
 				} finally {
 					unlink($tmp);
 				}
@@ -258,6 +267,25 @@ class CArmsWriter {
 
 		foreach ($stale as $sid) $this->delete('scans', $sid);
 		return $have ? 'ok' : 'updated';
+	}
+
+	/*
+	 * Расширение файла изображения по его содержимому (jpg по умолчанию).
+	 */
+	public static function imageExt(string $blob): string {
+		$mime = '';
+		if (function_exists('finfo_buffer')) {
+			$f = finfo_open(FILEINFO_MIME_TYPE);
+			$mime = (string)finfo_buffer($f, $blob);
+			finfo_close($f);
+		}
+		return match ($mime) {
+			'image/png'  => 'png',
+			'image/gif'  => 'gif',
+			'image/bmp', 'image/x-ms-bmp' => 'bmp',
+			'image/tiff' => 'tiff',
+			default      => 'jpg',
+		};
 	}
 
 	/*
