@@ -88,7 +88,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Отсутствия — **инфоблок ID 3**, ключ сверки — свойство `SAP_ID`.
 - `CBxOrgStructure::cleanParams()` обязательно перед любой записью: Bitrix отдаёт `FIELD` и `~FIELD` плюс `ID`, передача их обратно в `Update()` портит запись.
 - Пользовательские поля: `UF_DEPARTMENT` (массив ID секций), `UF_SAP_PHOTO_SYNC` (отметка фото), `UF_INN` (хеш СНИЛС), `UF_ABSENCE_SUBSCR`.
-- Пользователи Bitrix заводятся из **Active Directory**; синхронизация только корректирует существующих и пишет `ACTIVE`, `PERSONAL_BIRTHDAY`, `UF_DEPARTMENT`. `WORK_*` и контакты приходят из AD — **не писать**.
+- Пользователи Bitrix заводятся из **Active Directory**; синхронизация только корректирует существующих и пишет `ACTIVE` и `UF_DEPARTMENT`. `WORK_*` и контакты приходят из AD — **не писать**. `PERSONAL_BIRTHDAY` сознательно не передаётся (решение пользователя, 2026-07-27) — не возвращать без явной просьбы.
 
 ## Внешний кэш SAP
 

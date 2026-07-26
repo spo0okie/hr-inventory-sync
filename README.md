@@ -118,7 +118,7 @@ UPDATE org_struct SET parent_hr_id = hr_id, hr_id = id;
 | Даты приёма/увольн| employ_date, resign_date | DatePrin, DateUvol | | |
 | Уволен           	| Uvolen (0/1) 	| Uvolen ('X') | ACTIVE            	|                       	|
 | Хеш СНИЛС        	| uid          	| md5(Snils) | UF_INN             	|                       	|
-| День рождения    	| Bday         	| Gbdat   	| PERSONAL_BIRTHDAY    	|                       	|
+| День рождения    	| Bday         	| Gbdat   	| — (в Bitrix не передаётся) |                    	|
 | Отсутствие       	| absences (user_id, type, даты, comment, source, external_id) | Pernr+Awart+Begda+Endda (+CityTo/CountryTo для командировок) | инфоблок 3, свойство SAP_ID | |
 | Фото             	| скан photo-{pernr}-{date} с users_id | YfmGetPersPhoto (ArDate+base64) | PERSONAL_PHOTO, UF_SAP_PHOTO_SYNC | |
 

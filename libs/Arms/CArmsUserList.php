@@ -131,6 +131,8 @@ class CArmsUserList extends COrgStructureStorage {
 
 	/*
 	 * Поля, которые должны быть у пользователя Bitrix.
+	 * День рождения (PERSONAL_BIRTHDAY) сознательно НЕ передаётся (решение
+	 * пользователя, 2026-07-27); уже записанные в Bitrix значения не трогаются.
 	 * @param string $id идентификатор записи
 	 * @return array
 	 */
@@ -139,11 +141,9 @@ class CArmsUserList extends COrgStructureStorage {
 			$this->getItemField($id, 'uid'),
 			$this->getItemField($id, 'Orgeh')
 		);
-		$gbdat = $this->getItemField($id, 'Gbdat');
 		$fields = [
-			'ACTIVE'            => 'Y',
-			'PERSONAL_BIRTHDAY' => strlen((string)$gbdat) ? date('d.m.Y', strtotime($gbdat)) : null,
-			'UF_DEPARTMENT'     => $departments,
+			'ACTIVE'        => 'Y',
+			'UF_DEPARTMENT' => $departments,
 		];
 		if ($this->isDismissed($id)) $fields['ACTIVE'] = 'N';
 		return $fields;
