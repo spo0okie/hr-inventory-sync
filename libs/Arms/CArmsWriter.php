@@ -52,11 +52,31 @@ class CArmsWriter {
 	/*
 	 * Существующие подразделения организации: hr_id => полная запись.
 	 * (фильтра по hr_id в API нет, поэтому тянем организацию целиком)
+	 *
+	 * Дубли hr_id внутри организации — признак данных легаси-формата (старый
+	 * механизм прямой записи в SQL клал в id Objid узла, а в hr_id — Objid
+	 * РОДИТЕЛЯ, одинаковый у всех детей). Работать поверх таких данных нельзя
+	 * (карта неоднозначна, PUT упрётся в unique-валидацию) — останавливаемся
+	 * с инструкцией по конвертации до первой записи.
 	 */
 	public function fetchOrgMap($orgId): array {
 		$map = [];
-		foreach ($this->client->getAll('org-struct', ['org_id' => $orgId]) as $r)
-			$map[(string)$r['hr_id']] = $r;
+		$dupes = [];
+		foreach ($this->client->getAll('org-struct', ['org_id' => $orgId]) as $r) {
+			$hr = (string)$r['hr_id'];
+			if (isset($map[$hr])) $dupes[$hr][] = $r['id'];
+			$map[$hr] = $r;
+		}
+		if (count($dupes)) {
+			$hr = array_key_first($dupes);
+			throw new RuntimeException(
+				"в оргструктуре ARMS (org_id=$orgId) дубли hr_id — данные похожи на легаси-формат " .
+				"(hr_id хранит родителя, id — Objid узла). Пример: hr_id='$hr' у записей id=" .
+				implode(',', $dupes[$hr]) . " и ещё. Перед приёмом конвертируйте данные на стороне ARMS: " .
+				"UPDATE org_struct SET parent_hr_id = hr_id, hr_id = id; — либо очистите org_struct " .
+				"(приём пересоздаст структуру, users.Orgeh конвертации не требует)."
+			);
+		}
 		return $map;
 	}
 
