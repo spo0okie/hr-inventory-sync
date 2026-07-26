@@ -50,9 +50,9 @@ class CC1OrgStructure extends COrgStructureStorage{
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromCsv($filename){
-		//грузим данные САП из файла:
-		$this->data=COrgStructureStorage::loadFromCsv($filename,static::$csvFields,'Objid');
+	public function loadFromCsv($filename,$fields=null,$key='Objid',$skiphdr=true){
+		//грузим данные 1С из файла:
+		$this->data=COrgStructureStorage::loadFromCsv($filename,$fields??static::$csvFields,$key,$skiphdr);
 		echo count($this->data)." items loaded in С1 Org storage\n";
 		//var_dump($this->data);
 		return is_array($this->data);

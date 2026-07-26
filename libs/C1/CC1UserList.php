@@ -51,8 +51,8 @@ class CC1UserList extends COrgStructureStorage {
 	 * @param string $filename файл для загрузки
 	 * @return bool успех загрузки данных
 	 */
-	public function loadFromCsv($filename){
-		$this->data=COrgStructureStorage::loadFromCsv($filename,static::$csvFields,'Pernr');
+	public function loadFromCsv($filename,$fields=null,$key='Pernr',$skiphdr=true){
+		$this->data=COrgStructureStorage::loadFromCsv($filename,$fields??static::$csvFields,$key,$skiphdr);
 		//переводим типы трудоустройства в числовой вид
 		foreach ($this->data as $id => $item) {
 			switch (trim($item['Persg_c1'])) {
