@@ -34,13 +34,14 @@ function loadDataSource($src, &$sapOrg) {
 			break;
 		case 'rest':
 			//источник ARMS: path — массив ['url','user','pass','orgs']
+			//(синтаксис PHP 5.6 — файл грузится portal.php на хосте Bitrix)
 			$cfg = $src['path'];
 			$client = new CArmsRestClient(
 				$cfg['url'],
-				$cfg['user'] ?? '',
-				$cfg['pass'] ?? ''
+				isset($cfg['user']) ? $cfg['user'] : '',
+				isset($cfg['pass']) ? $cfg['pass'] : ''
 			);
-			$sapOrg->loadFromRest($client, $cfg['orgs'] ?? []);
+			$sapOrg->loadFromRest($client, isset($cfg['orgs']) ? $cfg['orgs'] : array());
 			break;
 		default:
 			die('Unknown org file type');

@@ -161,8 +161,8 @@ class CBxOrgStructure extends COrgStructureStorage {
 
 		//dry-run: секцию не создаём, только сообщаем о намерении
 		if ($this->readOnly) {
-			echo "[DRY-RUN] создал бы секцию CODE=".($params['CODE']??'?')." NAME=".($params['NAME']??'')."\n";
-			return 'DRYRUN-'.($params['CODE']??'');
+			echo "[DRY-RUN] создал бы секцию CODE=".(isset($params['CODE'])?$params['CODE']:'?')." NAME=".(isset($params['NAME'])?$params['NAME']:'')."\n";
+			return 'DRYRUN-'.(isset($params['CODE'])?$params['CODE']:'');
 		}
 
 		//debug

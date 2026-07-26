@@ -100,8 +100,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Обратная запись контактов в SAP (`$sapPushUserData` из легаси) в новый механизм не перенесена.
 
+## Два хоста — два диалекта PHP. Критично
+
+- **Хост Bitrix живёт на PHP 5.6.** Всё, что грузится там — `portal.php`, `absenceSubscr.php`, `bDayReminder.php` и их зависимости (`libs/OrgStruct.php`, `libs/Arms/CArmsRestClient.php`, `libs/Arms/CArmsOrgStructure.php`, `libs/Arms/CArmsUserList.php`, `libs/Bitrix/*`, `libs/Abstract/*`) — **только синтаксис 5.6**: без `??`, типов свойств/параметров/возвратов, `fn()`, `match`, короткой деструктуризации `[$a,$b]=`. Короткие массивы `[]`, `list()`, class/array type hints параметров — можно.
+- Хост инвентаризации — PHP 8.2: `inventory-arms.php`, `libs/Arms/CArmsWriter.php`, `libs/Arms/CArmsIngest.php`, `libs/SAP/*`, `libs/C1/*` могут использовать современный синтаксис.
+- `php -l` локального PHP 8.2 не ловит 7+-синтаксис (он для него валиден) — проверять грепом на паттерны либо линтом на хосте Bitrix.
+
 ## Тестовое окружение
 
-- Демо-ARMS: `http://localhost:8081/web/api` (dev, RBAC выключен — работает без авторизации). Данные одноразовые, можно писать при тестах, но убирать за собой.
-- Локальные образцы выгрузок SAP в корне (в gitignore): `orgstruct.json` (124 узла, 1470 сотрудников), `absence.cache.json` (38052 записи, с полями командировок), `absence.json` (старый формат, без них).
-- PHP 8.2 локально; на нём же должен работать код (база под PHP 8.2 выправлена — сигнатуры переопределений `loadFrom*`).
+- Демо-ARMS: `http://localhost:8081/web/api` (dev, RBAC выключен — работает без авторизации). Данные одноразовые, можно писать при тестах, но убирать за собой. При 500 «table does not exist …_history» — прогнать миграции ARMS (`php yii migrate`).
+- Локальный `config.php` может указывать на прод (недоступный с dev-машины) — тесты ходят в демо напрямую, минуя конфиг.
+- PHP 8.2 локально; сигнатуры переопределений `loadFrom*` выправлены во всех читателях.

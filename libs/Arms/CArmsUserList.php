@@ -59,11 +59,11 @@ class CArmsUserList extends COrgStructureStorage {
 		$u = &$this->data[$id];
 		// признак увольнения внутри — булев; ARMS отдаёт числом 0/1 (это единственная
 		// точка трактовки значения источника, дальше по коду работаем с boolean)
-		$u['_dismissed'] = ((int)($u['Uvolen'] ?? 0) === 1);
+		$u['_dismissed'] = ((int)(isset($u['Uvolen']) ? $u['Uvolen'] : 0) === 1);
 		// Bday '9-02-1984' (д-м-г) -> Gbdat 'Y-m-d' для PERSONAL_BIRTHDAY
-		$u['Gbdat'] = static::normalizeBday($u['Bday'] ?? '');
+		$u['Gbdat'] = static::normalizeBday(isset($u['Bday']) ? $u['Bday'] : '');
 		// uid (хеш СНИЛС) ARMS отдаёт готовым — оставляем как есть (может быть пустым)
-		$u['uid'] = (string)($u['uid'] ?? '');
+		$u['uid'] = (string)(isset($u['uid']) ? $u['uid'] : '');
 		$u['exFieldsBuilt'] = true;
 		return true;
 	}

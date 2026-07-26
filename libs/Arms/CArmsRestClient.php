@@ -5,23 +5,33 @@
  * Транспорт для источника 'arms': оргструктура, сотрудники (и, в перспективе,
  * отсутствия) читаются через REST вместо прямого доступа к БД инвентаризации.
  *
+ * ВНИМАНИЕ: файл загружается portal.php на хосте Bitrix с PHP 5.6 — синтаксис
+ * держать совместимым с 5.6 (без ??, типов свойств/параметров/возвратов,
+ * короткой деструктуризации [] и match). См. CLAUDE.md.
+ *
  * Аутентификация — HTTP Basic сервисным пользователем ARMS. Опциональна: если
  * логин пуст, запрос уходит без авторизации (локальный инстанс с отключенным
  * RBAC отвечает и так). Постраничная выборка собирается по заголовкам
  * X-Pagination-Page-Count. Все методы работают с уже декодированным JSON.
  *
- * Пишущие методы (create/update/delete) понадобятся для приёма SAP/1C -> ARMS.
+ * КРИТИЧНО: экшн index (GET /{resource}) отдаёт всё и игнорирует фильтры.
+ * Фильтрация только через /{resource}/filter (список) и /{resource}/search
+ * (одна запись, 404 если нет).
  */
 class CArmsRestClient {
-	private string $baseUrl;
-	private string $user;
-	private string $password;
-	private int    $timeout;
+	/** @var string базовый URL API (https://host/web/api) */
+	private $baseUrl;
+	/** @var string */
+	private $user;
+	/** @var string */
+	private $password;
+	/** @var int таймаут запроса, сек */
+	private $timeout;
 
-	/** размер страницы при постраничной выборке getAll() */
-	public int $perPage = 200;
+	/** @var int размер страницы при постраничной выборке getAll() */
+	public $perPage = 200;
 
-	public function __construct(string $baseUrl, string $user = '', string $password = '', int $timeout = 30) {
+	public function __construct($baseUrl, $user = '', $password = '', $timeout = 30) {
 		$this->baseUrl  = rtrim($baseUrl, '/');
 		$this->user     = $user;
 		$this->password = $password;
@@ -33,16 +43,16 @@ class CArmsRestClient {
 	 * @return array [int $httpCode, array $headers (ключи в нижнем регистре), mixed $decodedBody]
 	 * @throws RuntimeException при сетевой ошибке или невалидном JSON
 	 */
-	private function request(string $method, string $resource, array $query = [], ?array $body = null): array {
+	private function request($method, $resource, $query = array(), $body = null) {
 		$url = $this->baseUrl . '/' . ltrim($resource, '/');
 		if ($query) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
 
-		$headers = [];
+		$headers = array();
 		$ch = curl_init($url);
-		$reqHeaders = ['Accept: application/json'];
+		$reqHeaders = array('Accept: application/json');
 		if ($body !== null) $reqHeaders[] = 'Content-Type: application/json';
 
-		$opts = [
+		$opts = array(
 			CURLOPT_CUSTOMREQUEST  => $method,
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_TIMEOUT        => $this->timeout,
@@ -52,7 +62,7 @@ class CArmsRestClient {
 				if ($p !== false) $headers[strtolower(trim(substr($line, 0, $p)))] = trim(substr($line, $p + 1));
 				return strlen($line);
 			},
-		];
+		);
 		if (strlen($this->user)) {
 			$opts[CURLOPT_USERPWD]  = $this->user . ':' . $this->password;
 			$opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
@@ -73,13 +83,13 @@ class CArmsRestClient {
 		if (strlen($raw) && json_last_error() !== JSON_ERROR_NONE)
 			throw new RuntimeException("ARMS API $method $url: невалидный JSON: " . json_last_error_msg());
 
-		return [$code, $headers, $data];
+		return array($code, $headers, $data);
 	}
 
 	/*
 	 * Ошибка API с телом ответа: в теле ARMS отдаёт причину (403 RBAC, 422 валидация).
 	 */
-	private static function apiError(string $what, int $code, $body): RuntimeException {
+	private static function apiError($what, $code, $body) {
 		$text = is_null($body) ? '' : json_encode($body, JSON_UNESCAPED_UNICODE);
 		if (strlen($text) > 300) $text = substr($text, 0, 300) . '...';
 		return new RuntimeException("ARMS API $what -> HTTP $code" . (strlen($text) ? ": $text" : ''));
@@ -91,14 +101,14 @@ class CArmsRestClient {
 	 * @param array  $filter   фильтр, напр. ['org_id'=>1]
 	 * @return array список записей (ассоциативные массивы)
 	 */
-	public function getAll(string $resource, array $filter = []): array {
+	public function getAll($resource, $filter = array()) {
 		//фильтрация в ARMS — через экшн /filter (index отдаёт всё без фильтра!)
 		$path = $filter ? $resource . '/filter' : $resource;
-		$out = [];
+		$out = array();
 		$page = 1;
 		$pageCount = 1;
 		do {
-			[$code, $h, $data] = $this->request('GET', $path, $filter + ['page' => $page, 'per-page' => $this->perPage]);
+			list($code, $h, $data) = $this->request('GET', $path, $filter + array('page' => $page, 'per-page' => $this->perPage));
 			if ($code !== 200) throw static::apiError("GET $path", $code, $data);
 			if (is_array($data)) foreach ($data as $row) $out[] = $row;
 			$pageCount = isset($h['x-pagination-page-count']) ? (int)$h['x-pagination-page-count'] : 1;
@@ -111,8 +121,8 @@ class CArmsRestClient {
 	 * Поиск ОДНОЙ записи по уникальному фильтру через /{resource}/search.
 	 * @return array|null запись или null, если не найдено (ARMS отвечает HTTP 404)
 	 */
-	public function findOne(string $resource, array $filter): ?array {
-		[$code, $h, $data] = $this->request('GET', $resource . '/search', $filter);
+	public function findOne($resource, $filter) {
+		list($code, $h, $data) = $this->request('GET', $resource . '/search', $filter);
 		if ($code === 404) return null;
 		if ($code !== 200) throw static::apiError("GET $resource/search", $code, $data);
 		return is_array($data) ? $data : null;
@@ -121,10 +131,10 @@ class CArmsRestClient {
 	/*
 	 * Одиночная выборка (без сбора страниц). Возвращает то, что отдал API.
 	 */
-	public function get(string $resource, array $filter = []): array {
-		[$code, $h, $data] = $this->request('GET', $resource, $filter);
+	public function get($resource, $filter = array()) {
+		list($code, $h, $data) = $this->request('GET', $resource, $filter);
 		if ($code !== 200) throw static::apiError("GET $resource", $code, $data);
-		return is_array($data) ? $data : [];
+		return is_array($data) ? $data : array();
 	}
 
 	/*
@@ -132,7 +142,7 @@ class CArmsRestClient {
 	 * пользователя (или null при отключенном RBAC / отсутствии авторизации).
 	 */
 	public function whoami() {
-		[$code, $h, $data] = $this->request('GET', 'users/whoami');
+		list($code, $h, $data) = $this->request('GET', 'users/whoami');
 		return $code === 200 ? $data : null;
 	}
 
@@ -144,16 +154,18 @@ class CArmsRestClient {
 	 * @param array  $fields   дополнительные POST-поля (users_id и т.п.)
 	 * @return array декодированный ответ
 	 */
-	public function uploadFile(string $action, string $filePath, string $postName, array $fields = []): array {
+	public function uploadFile($action, $filePath, $postName, $fields = array()) {
 		$url = $this->baseUrl . '/' . ltrim($action, '/');
 		$ch = curl_init($url);
-		$opts = [
+		$mime = function_exists('mime_content_type') ? mime_content_type($filePath) : '';
+		if (!$mime) $mime = 'application/octet-stream';
+		$opts = array(
 			CURLOPT_POST           => true,
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_TIMEOUT        => $this->timeout,
-			CURLOPT_HTTPHEADER     => ['Accept: application/json'],
-			CURLOPT_POSTFIELDS     => $fields + ['scanFile' => new CURLFile($filePath, mime_content_type($filePath) ?: 'application/octet-stream', $postName)],
-		];
+			CURLOPT_HTTPHEADER     => array('Accept: application/json'),
+			CURLOPT_POSTFIELDS     => $fields + array('scanFile' => new CURLFile($filePath, $mime, $postName)),
+		);
 		if (strlen($this->user)) {
 			$opts[CURLOPT_USERPWD]  = $this->user . ':' . $this->password;
 			$opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
@@ -169,25 +181,25 @@ class CArmsRestClient {
 		curl_close($ch);
 		if ($code < 200 || $code >= 300) throw new RuntimeException("ARMS API upload $action -> HTTP $code: " . substr($raw, 0, 200));
 		$data = json_decode($raw, true);
-		return is_array($data) ? $data : [];
+		return is_array($data) ? $data : array();
 	}
 
-	// --- запись (приём SAP/1C -> ARMS, понадобится позже) ---
+	// --- запись (приём SAP/1C -> ARMS) ---
 
-	public function create(string $resource, array $body): array {
-		[$code, $h, $data] = $this->request('POST', $resource, [], $body);
+	public function create($resource, $body) {
+		list($code, $h, $data) = $this->request('POST', $resource, array(), $body);
 		if ($code < 200 || $code >= 300) throw static::apiError("POST $resource", $code, $data);
-		return is_array($data) ? $data : [];
+		return is_array($data) ? $data : array();
 	}
 
-	public function update(string $resource, $id, array $body): array {
-		[$code, $h, $data] = $this->request('PUT', "$resource/$id", [], $body);
+	public function update($resource, $id, $body) {
+		list($code, $h, $data) = $this->request('PUT', "$resource/$id", array(), $body);
 		if ($code < 200 || $code >= 300) throw static::apiError("PUT $resource/$id", $code, $data);
-		return is_array($data) ? $data : [];
+		return is_array($data) ? $data : array();
 	}
 
-	public function delete(string $resource, $id): void {
-		[$code, $h, $data] = $this->request('DELETE', "$resource/$id");
+	public function delete($resource, $id) {
+		list($code, $h, $data) = $this->request('DELETE', "$resource/$id");
 		if ($code < 200 || $code >= 300) throw static::apiError("DELETE $resource/$id", $code, $data);
 	}
 }
