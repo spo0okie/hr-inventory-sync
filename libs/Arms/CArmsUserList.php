@@ -126,7 +126,10 @@ class CArmsUserList extends COrgStructureStorage {
 			$bxCode = $this->findBxDep($ownOrgeh);
 			if (!is_null($bxCode)) $bxDepartments[$bxCode] = $bxCode;
 		}
-		return array_keys($bxDepartments);
+		//сортировка — чтобы сравнение с Bitrix не давало ложных дифов из-за порядка
+		$res = array_keys($bxDepartments);
+		sort($res, SORT_NUMERIC);
+		return $res;
 	}
 
 	/*

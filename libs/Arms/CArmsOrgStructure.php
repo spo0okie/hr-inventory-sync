@@ -113,13 +113,16 @@ class CArmsOrgStructure extends COrgStructureStorage {
 	 */
 	public function bxGenFields($id) {
 		$parent = $this->getParent($id);
-		return [
+		$fields = [
 			"ACTIVE"            => count($this->getActiveUsersRecursive($id)) ? 'Y' : 'N',
 			"IBLOCK_ID"         => $this->bx->getStructIBlock(),
-			"IBLOCK_SECTION_ID" => is_null($parent) ? null : $this->findBxSection($parent),
 			"NAME"              => $this->getItemField($id, 'Orgtx'),
 			"CODE"              => $id,
 		];
+		//у корневого узла положение секции не трогаем: где администратор портала её
+		//разместил (например, под обёрткой «Организации»), там она и остаётся
+		if (!is_null($parent)) $fields["IBLOCK_SECTION_ID"] = $this->findBxSection($parent);
+		return $fields;
 	}
 
 	/*

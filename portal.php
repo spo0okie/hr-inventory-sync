@@ -121,6 +121,19 @@ if ($argc==1) {
 			str_pad('', 40 - mb_strlen($unitName)) .
 			str_pad("$wcount", 3, ' ', STR_PAD_LEFT) .
 			" users : ";
+
+		/*
+		 * узлы без активных сотрудников, которых ещё нет в портале, не создаём:
+		 * в ARMS есть ручная оргструктура для нужд инвентаризации (техника,
+		 * помещения) — ей в портале делать нечего. Существующие секции при этом
+		 * обслуживаются как раньше (включая деактивацию опустевших)
+		 */
+		if (!$wcount && is_null($armsOrg->findBxSection($armsID))) {
+			echo "skip (пустое, в портале нет)\n";
+			ob_flush();
+			continue;
+		}
+
 		echo $armsOrg->ckBxItemFields($armsID) ? 'OK' : 'Err';
 		echo "\n";
 		ob_flush();
