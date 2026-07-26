@@ -25,6 +25,26 @@ class CArmsOrgStructure extends COrgStructureStorage {
 		return $orgId . '-' . $hrId;
 	}
 
+	/** Голый hr_id из неймспейс-кода ('1-10000001' -> '10000001'). */
+	public static function bareCode($code) {
+		$p = strpos((string)$code, '-');
+		return $p === false ? '' : substr((string)$code, $p + 1);
+	}
+
+	/*
+	 * Секция Bitrix по коду подразделения: сначала новый формат {org_id}-{hr_id},
+	 * при промахе — легаси-формат (голый hr_id, как писал старый механизм).
+	 * Голый код однозначен: по соглашению в SAP коды подразделений уникальны
+	 * между организациями. Найденная по легаси-коду секция затем переименуется
+	 * в новый формат обычным correctItem (CODE входит в bxGenFields).
+	 */
+	public function findBxSection($code) {
+		if (!is_null($bxID = $this->bx->findIDBy('CODE', $code))) return $bxID;
+		$bare = static::bareCode($code);
+		if (strlen($bare) && !is_null($bxID = $this->bx->findIDBy('CODE', $bare))) return $bxID;
+		return null;
+	}
+
 	public function attachBx(&$bx) { $this->bx = $bx; }
 	public function attachUsers(&$users) { $this->users = $users; }
 
@@ -92,10 +112,11 @@ class CArmsOrgStructure extends COrgStructureStorage {
 	 * @return array
 	 */
 	public function bxGenFields($id) {
+		$parent = $this->getParent($id);
 		return [
 			"ACTIVE"            => count($this->getActiveUsersRecursive($id)) ? 'Y' : 'N',
 			"IBLOCK_ID"         => $this->bx->getStructIBlock(),
-			"IBLOCK_SECTION_ID" => $this->bx->findIDBy('CODE', $this->getParent($id)),
+			"IBLOCK_SECTION_ID" => is_null($parent) ? null : $this->findBxSection($parent),
 			"NAME"              => $this->getItemField($id, 'Orgtx'),
 			"CODE"              => $id,
 		];
@@ -111,7 +132,7 @@ class CArmsOrgStructure extends COrgStructureStorage {
 		if (!is_null($parent = $this->getParent($id)))
 			if (!$this->ckBxItemExist($parent)) return null;
 		if (
-			is_null($bxID = $this->bx->findIDBy('CODE', $id)) &&
+			is_null($bxID = $this->findBxSection($id)) &&  //новый формат, затем легаси-код
 			is_null($bxID = $this->bx->addItem($this->bxGenFields($id)))
 		) return null;
 		return $this->data[$id]['bx_item_id'] = $bxID;

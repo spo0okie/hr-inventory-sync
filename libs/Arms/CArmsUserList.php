@@ -103,16 +103,27 @@ class CArmsUserList extends COrgStructureStorage {
 	 * @param string|null $ownOrgeh Orgeh записи, с которой пришли (для случая пустого uid)
 	 * @return array список CODE подразделений в Bitrix
 	 */
+	/*
+	 * Секция Bitrix по коду подразделения: новый формат, при промахе — легаси
+	 * (голый hr_id; коды SAP уникальны между организациями, см. CArmsOrgStructure).
+	 */
+	private function findBxDep($code) {
+		$bxCode = $this->bxOrg->findIdBy('CODE', $code);
+		if (!is_null($bxCode)) return $bxCode;
+		$bare = CArmsOrgStructure::bareCode($code);
+		return strlen($bare) ? $this->bxOrg->findIdBy('CODE', $bare) : null;
+	}
+
 	public function getActiveDepartmentsCodes($uid, $ownOrgeh = null) {
 		$bxDepartments = [];
 		if (strlen((string)$uid)) {
 			foreach ($this->findIdsBy(['uid' => $uid]) as $id) {
 				if ($this->isDismissed($id)) continue;
-				$bxCode = $this->bxOrg->findIdBy('CODE', $this->getItemField($id, 'Orgeh'));
+				$bxCode = $this->findBxDep($this->getItemField($id, 'Orgeh'));
 				if (!is_null($bxCode)) $bxDepartments[$bxCode] = $bxCode;
 			}
 		} elseif (!is_null($ownOrgeh) && strlen((string)$ownOrgeh)) {
-			$bxCode = $this->bxOrg->findIdBy('CODE', $ownOrgeh);
+			$bxCode = $this->findBxDep($ownOrgeh);
 			if (!is_null($bxCode)) $bxDepartments[$bxCode] = $bxCode;
 		}
 		return array_keys($bxDepartments);
