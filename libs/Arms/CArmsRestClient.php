@@ -77,6 +77,15 @@ class CArmsRestClient {
 	}
 
 	/*
+	 * Ошибка API с телом ответа: в теле ARMS отдаёт причину (403 RBAC, 422 валидация).
+	 */
+	private static function apiError(string $what, int $code, $body): RuntimeException {
+		$text = is_null($body) ? '' : json_encode($body, JSON_UNESCAPED_UNICODE);
+		if (strlen($text) > 300) $text = substr($text, 0, 300) . '...';
+		return new RuntimeException("ARMS API $what -> HTTP $code" . (strlen($text) ? ": $text" : ''));
+	}
+
+	/*
 	 * Полная выборка ресурса с фильтрами: собирает все страницы по X-Pagination-Page-Count.
 	 * @param string $resource напр. 'users' или 'org-struct'
 	 * @param array  $filter   фильтр, напр. ['org_id'=>1]
@@ -90,7 +99,7 @@ class CArmsRestClient {
 		$pageCount = 1;
 		do {
 			[$code, $h, $data] = $this->request('GET', $path, $filter + ['page' => $page, 'per-page' => $this->perPage]);
-			if ($code !== 200) throw new RuntimeException("ARMS API GET $path -> HTTP $code");
+			if ($code !== 200) throw static::apiError("GET $path", $code, $data);
 			if (is_array($data)) foreach ($data as $row) $out[] = $row;
 			$pageCount = isset($h['x-pagination-page-count']) ? (int)$h['x-pagination-page-count'] : 1;
 			$page++;
@@ -105,7 +114,7 @@ class CArmsRestClient {
 	public function findOne(string $resource, array $filter): ?array {
 		[$code, $h, $data] = $this->request('GET', $resource . '/search', $filter);
 		if ($code === 404) return null;
-		if ($code !== 200) throw new RuntimeException("ARMS API GET $resource/search -> HTTP $code");
+		if ($code !== 200) throw static::apiError("GET $resource/search", $code, $data);
 		return is_array($data) ? $data : null;
 	}
 
@@ -114,7 +123,7 @@ class CArmsRestClient {
 	 */
 	public function get(string $resource, array $filter = []): array {
 		[$code, $h, $data] = $this->request('GET', $resource, $filter);
-		if ($code !== 200) throw new RuntimeException("ARMS API GET $resource -> HTTP $code");
+		if ($code !== 200) throw static::apiError("GET $resource", $code, $data);
 		return is_array($data) ? $data : [];
 	}
 
@@ -167,18 +176,18 @@ class CArmsRestClient {
 
 	public function create(string $resource, array $body): array {
 		[$code, $h, $data] = $this->request('POST', $resource, [], $body);
-		if ($code < 200 || $code >= 300) throw new RuntimeException("ARMS API POST $resource -> HTTP $code");
+		if ($code < 200 || $code >= 300) throw static::apiError("POST $resource", $code, $data);
 		return is_array($data) ? $data : [];
 	}
 
 	public function update(string $resource, $id, array $body): array {
 		[$code, $h, $data] = $this->request('PUT', "$resource/$id", [], $body);
-		if ($code < 200 || $code >= 300) throw new RuntimeException("ARMS API PUT $resource/$id -> HTTP $code");
+		if ($code < 200 || $code >= 300) throw static::apiError("PUT $resource/$id", $code, $data);
 		return is_array($data) ? $data : [];
 	}
 
 	public function delete(string $resource, $id): void {
-		[$code] = $this->request('DELETE', "$resource/$id");
-		if ($code < 200 || $code >= 300) throw new RuntimeException("ARMS API DELETE $resource/$id -> HTTP $code");
+		[$code, $h, $data] = $this->request('DELETE', "$resource/$id");
+		if ($code < 200 || $code >= 300) throw static::apiError("DELETE $resource/$id", $code, $data);
 	}
 }

@@ -12,7 +12,10 @@
  *   $dryRun                      — не писать в ARMS, только логировать.
  */
 
-error_reporting(E_WARNING);
+//ошибки — в консоль независимо от php.ini: скрипт запускают руками и по cron,
+//молчаливая смерть от фатала (display_errors=Off) недопустима
+ini_set('display_errors', 'stderr');
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 echo date('c') . " Script started\n";
 
 require_once "config.php";
@@ -40,6 +43,17 @@ if (isset($sapAbsenceCache) && strlen($sapAbsenceCache) && isset($sapAbsenceFile
 	echo "Refreshing SAP absence cache...\n";
 	system($sapAbsenceCache);
 }
+
+//проверка доступности API и авторизации до начала работы: лучше упасть с внятным
+//сообщением здесь, чем на первой записи посреди синхронизации
+try {
+	$client->whoami();
+} catch (RuntimeException $e) {
+	fwrite(STDERR, "ОШИБКА: ARMS API недоступен: " . $e->getMessage() . "\n");
+	exit(1);
+}
+
+try {
 
 foreach ($inventory_import['sources'] as $dataSrc) {
 	$sapOrg = initOrgStructure($dataSrc);
@@ -94,6 +108,12 @@ if (isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
 	echo "  absences: создано {$ra['created']}, обновлено {$ra['updated']}, без изменений {$ra['ok']}, " .
 		"удалено исчезнувших {$ra['removed']}, пропущено: без сотрудника в ARMS {$ra['skippedUser']}, " .
 		"с неизвестным типом {$ra['skippedType']}\n";
+}
+
+} catch (RuntimeException $e) {
+	//ошибки ARMS API (RBAC/валидация/сеть) — с телом ответа, см. CArmsRestClient::apiError
+	fwrite(STDERR, "ОШИБКА: " . $e->getMessage() . "\n");
+	exit(1);
 }
 
 echo date('c') . " Script complete\n";
