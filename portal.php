@@ -177,7 +177,7 @@ foreach ($userIds as $bxID) {
 	//выводим биртикс ИД, логин, ARMS ИД
 	$prefx.=str_pad($armsID,12);
 
-	//проверка полей (ACTIVE, PERSONAL_BIRTHDAY, UF_DEPARTMENT; прочее приходит из АД)
+	//проверка полей (ACTIVE, UF_DEPARTMENT; прочее приходит из АД)
 	$prefx.='Fields - '.str_pad(($bxUsers->correctItem($bxID)?'OK ':'Err'),3).'  ';
 
 	//проверяем наличие пользователя в группе в которой должны быть все

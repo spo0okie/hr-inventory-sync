@@ -20,9 +20,40 @@ class CArmsUserList extends COrgStructureStorage {
 	private $sapOrg = null;
 	private $orgDict = null;
 
+	/*
+	 * Индексы для сопоставления (ключ -> список id записей). Без них getMainEmployment
+	 * линейно сканирует всех сотрудников на КАЖДОГО пользователя Bitrix (2600 x 2400
+	 * сравнений с html_entity_decode/mb_strtolower — минуты вместо секунд).
+	 */
+	private $idxPernr = array();
+	private $idxUid = array();
+	private $idxName = array();
+
 	public function attachBxOrg(&$bx) { $this->bxOrg = $bx; }
 	public function attachSapOrg(&$sap) { $this->sapOrg = $sap; }
 	public function attachOrgDict(&$dict) { $this->orgDict = $dict; }
+
+	/* Ключ индекса ФИО: регистр, ё->е, лишние пробелы (эквивалент soft-сравнения). */
+	public static function nameKey($name) {
+		$n = mb_strtolower(trim((string)$name));
+		$n = str_replace('ё', 'е', $n);
+		return preg_replace('/\s+/u', ' ', $n);
+	}
+
+	/* Перестраивает индексы сопоставления по текущему $data. */
+	public function buildIndexes() {
+		$this->idxPernr = array();
+		$this->idxUid = array();
+		$this->idxName = array();
+		foreach ($this->data as $id => $u) {
+			$p = (string)(isset($u['Pernr']) ? $u['Pernr'] : '');
+			if (strlen($p)) $this->idxPernr[$p][] = $id;
+			$uid = (string)(isset($u['uid']) ? $u['uid'] : '');
+			if (strlen($uid)) $this->idxUid[$uid][] = $id;
+			$nk = static::nameKey(isset($u['Ename']) ? $u['Ename'] : '');
+			if (strlen($nk)) $this->idxName[$nk][] = $id;
+		}
+	}
 
 	/*
 	 * Грузит сотрудников из ARMS.
@@ -50,6 +81,7 @@ class CArmsUserList extends COrgStructureStorage {
 			$this->data[$key] = $r;
 		}
 		$this->buildExFieldsAll();
+		$this->buildIndexes();
 		return is_array($this->data);
 	}
 
@@ -160,8 +192,26 @@ class CArmsUserList extends COrgStructureStorage {
 	 * @throws Exception при столкновении двух основных трудоустройств (однофамильцы)
 	 */
 	public function getMainEmployment($filter) {
-		$users = $this->findIdsBy($filter);
-		if (!count($users)) $users = $this->findIdsBy($filter, true, false, true); // без учёта Ё
+		//быстрый путь: одиночные фильтры по Pernr/uid/Ename решаются индексами O(1)
+		$users = null;
+		$indexed = count($this->idxPernr) || count($this->idxUid) || count($this->idxName);
+		if ($indexed && count($filter) === 1) {
+			if (isset($filter['Pernr'])) {
+				$k = (string)$filter['Pernr'];
+				$users = isset($this->idxPernr[$k]) ? $this->idxPernr[$k] : array();
+			} elseif (isset($filter['uid'])) {
+				$k = (string)$filter['uid'];
+				$users = isset($this->idxUid[$k]) ? $this->idxUid[$k] : array();
+			} elseif (isset($filter['Ename'])) {
+				$k = static::nameKey($filter['Ename']);
+				$users = isset($this->idxName[$k]) ? $this->idxName[$k] : array();
+			}
+		}
+		if (is_null($users)) {
+			//медленный путь для нестандартных фильтров (и данных без индексов)
+			$users = $this->findIdsBy($filter);
+			if (!count($users)) $users = $this->findIdsBy($filter, true, false, true); // без учёта Ё
+		}
 		if (!count($users)) return null;
 
 		$types = [];
