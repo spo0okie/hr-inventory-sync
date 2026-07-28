@@ -232,6 +232,10 @@ class CSapUserList extends COrgStructureStorage {
 		if (strcmp($this->data[$id]['Uvolen'],'Х')==0) $this->data[$id]['Uvolen']='Уволен'; //Русская Ха
 		if (strcmp($this->data[$id]['Uvolen'],'X')==0) $this->data[$id]['Uvolen']='Уволен'; //Английский Икс
 
+		//у ДГПХ (Persg=4) должности в SAP не бывает — приходит заглушка
+		//«Интеграция: штатная должн», пишем осмысленное значение
+		if ((int)$this->getItemField($id, 'Persg') === 4) $this->data[$id]['Doljnost'] = 'ДГПХ';
+
 		if ($this->getItemField($id, 'exFieldsBuilt')===true) return true; //уже все сделано
 
 		if (!isset($this->data[$id]['Organization'])) {
