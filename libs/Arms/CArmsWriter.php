@@ -125,11 +125,27 @@ class CArmsWriter {
 	 * Существующие сотрудники: employee_id => полная запись.
 	 * Табельный уникален между организациями. Записи без табельника в карту
 	 * не попадают (их адресуют по uid/ФИО, см. CArmsIngest::ingestUsers).
+	 *
+	 * Дубли табельного — след неполной выборки в прошлых прогонах: запись не
+	 * нашлась в карте и была создана заново. Unique-валидации на (org_id,
+	 * employee_id) в модели ARMS нет, так что молча возникают близнецы —
+	 * предупреждаем, разбирать их приходится руками.
 	 */
 	public function fetchUsersMap(): array {
 		$map = [];
-		foreach ($this->fetchUsers() as $r)
-			if (strlen((string)$r['employee_id'])) $map[(string)$r['employee_id']] = $r;
+		$dupes = [];
+		foreach ($this->fetchUsers() as $r) {
+			$emp = (string)$r['employee_id'];
+			if (!strlen($emp)) continue;
+			if (isset($map[$emp])) $dupes[$emp][] = $r['id'];
+			$map[$emp] = $r;
+		}
+		if (count($dupes)) {
+			$sample = [];
+			foreach (array_slice($dupes, 0, 5, true) as $emp => $ids) $sample[] = "$emp (id " . implode(',', $ids) . ")";
+			fwrite(STDERR, "ВНИМАНИЕ: в ARMS дубли по табельному, записей: " . count($dupes) .
+				"; например: " . implode('; ', $sample) . " — лишние записи нужно удалить вручную\n");
+		}
 		return $map;
 	}
 
@@ -205,8 +221,25 @@ class CArmsWriter {
 			echo "[DRY] POST absences ({$fields['external_id']}: {$fields['type']} {$fields['date_from']}..{$fields['date_to']})\n";
 			return ['id' => null, 'action' => 'created'];
 		}
-		$res = $this->client->create('absences', $fields);
-		return ['id' => $res['id'] ?? null, 'action' => 'created'];
+		try {
+			$res = $this->client->create('absences', $fields);
+			return ['id' => $res['id'] ?? null, 'action' => 'created'];
+		} catch (RuntimeException $e) {
+			//запись в ARMS всё-таки есть, хотя в карте её не было: выборка пришла неполной
+			//либо ключ разошёлся с точностью до сравнения MySQL (регистр, хвостовые пробелы).
+			//В ARMS на (source, external_id) уникальный индекс без unique-валидации в модели,
+			//поэтому дубль прилетает не как 422, а как 500 Integrity constraint violation.
+			$known = $this->client->findOne('absences', [
+				'source'      => $fields['source'],
+				'external_id' => $fields['external_id'],
+			]);
+			if (!is_array($known)) throw $e;
+			$id = $known['id'];
+			fwrite(STDERR, "ВНИМАНИЕ: absences/$id уже есть с external_id '" . $known['external_id'] .
+				"' (в карте не нашлось по '" . $fields['external_id'] . "') — обновляю вместо создания\n");
+			$this->client->update('absences', $id, $fields);
+			return ['id' => $id, 'action' => 'updated'];
+		}
 	}
 
 	/*

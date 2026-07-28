@@ -31,6 +31,9 @@ class CArmsRestClient {
 	/** @var int размер страницы при постраничной выборке getAll() */
 	public $perPage = 200;
 
+	/** предохранитель от бесконечного листания, если сервер не отдаёт границу выборки */
+	const MAX_PAGES = 1000;
+
 	public function __construct($baseUrl, $user = '', $password = '', $timeout = 30) {
 		$this->baseUrl  = rtrim($baseUrl, '/');
 		$this->user     = $user;
@@ -97,6 +100,19 @@ class CArmsRestClient {
 
 	/*
 	 * Полная выборка ресурса с фильтрами: собирает все страницы по X-Pagination-Page-Count.
+	 *
+	 * КРИТИЧНО: неполная выборка тихо ломает идемпотентность приёма — отсутствующую
+	 * в карте запись сочтут несуществующей и создадут заново (дубль либо, при
+	 * уникальном индексе, HTTP 500 на POST). Отсюда три предосторожности:
+	 *
+	 *  - сортировка (sort=id): LIMIT/OFFSET без ORDER BY не даёт СУБД никаких
+	 *    обязательств по порядку, и страницы одной выборки могут пересечься —
+	 *    часть записей приходит дважды, а часть не приходит вовсе;
+	 *  - дедупликация по id: пересёкшиеся страницы не должны раздувать итог
+	 *    (иначе сверка с total ничего не поймает — количество сойдётся);
+	 *  - если заголовка с числом страниц нет (прокси срезал, старая версия API) —
+	 *    листаем, пока страницы приходят полными.
+	 *
 	 * @param string $resource напр. 'users' или 'org-struct'
 	 * @param array  $filter   фильтр, напр. ['org_id'=>1]
 	 * @return array список записей (ассоциативные массивы)
@@ -105,15 +121,32 @@ class CArmsRestClient {
 		//фильтрация в ARMS — через экшн /filter (index отдаёт всё без фильтра!)
 		$path = $filter ? $resource . '/filter' : $resource;
 		$out = array();
+		$seen = array();
 		$page = 1;
-		$pageCount = 1;
+		$total = null;
 		do {
-			list($code, $h, $data) = $this->request('GET', $path, $filter + array('page' => $page, 'per-page' => $this->perPage));
+			$query = $filter + array('sort' => 'id', 'page' => $page, 'per-page' => $this->perPage);
+			list($code, $h, $data) = $this->request('GET', $path, $query);
 			if ($code !== 200) throw static::apiError("GET $path", $code, $data);
-			if (is_array($data)) foreach ($data as $row) $out[] = $row;
-			$pageCount = isset($h['x-pagination-page-count']) ? (int)$h['x-pagination-page-count'] : 1;
+			$got = is_array($data) ? count($data) : 0;
+			if (is_array($data)) foreach ($data as $row) {
+				if (isset($row['id'])) {
+					if (isset($seen[$row['id']])) continue;
+					$seen[$row['id']] = true;
+				}
+				$out[] = $row;
+			}
+			if (is_null($total) && isset($h['x-pagination-total-count'])) $total = (int)$h['x-pagination-total-count'];
+			$more = isset($h['x-pagination-page-count'])
+				? ($page < (int)$h['x-pagination-page-count'])
+				: ($got >= $this->perPage);
 			$page++;
-		} while ($page <= $pageCount);
+		} while ($more && $page <= static::MAX_PAGES);
+
+		if (!is_null($total) && count($out) < $total)
+			fwrite(STDERR, "ВНИМАНИЕ: GET $path отдал " . count($out) . " записей из $total — выборка неполная " .
+				"(страницы пересеклись или записи менялись во время выборки)\n");
+
 		return $out;
 	}
 

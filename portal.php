@@ -57,6 +57,9 @@ $armsOrg=initOrgStructure($dataSrc);
 ob_flush();
 $armsUsers=initUserList($dataSrc);
 ob_flush();
+//организации без оргструктуры: их сотрудников — на синтетический корень организации
+if ($moved=$armsUsers->applyOrgRoots($armsOrg->getOrgRoots()))
+	echo "Сотрудников поставлено на корни организаций без оргструктуры: $moved\n";
 $armsOrg->attachUsers($armsUsers);
 
 //предохранитель: пустой или обрезанный источник массово деактивирует пользователей портала

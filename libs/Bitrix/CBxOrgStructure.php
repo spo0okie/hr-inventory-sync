@@ -121,6 +121,21 @@ class CBxOrgStructure extends COrgStructureStorage {
 	}
 	
 	/**
+	 * Единственный раздел верхнего уровня оргструктуры (секция-обёртка портала,
+	 * например «Организации»). Bitrix допускает в структуре компании только один
+	 * раздел верхнего уровня, поэтому новые корни создаются внутри него.
+	 * @return string|null id раздела или null, если он не один (создавать вслепую нельзя)
+	 */
+	public function getTopSectionId(){
+		$tops=[];
+		foreach ($this->getIds() as $id)
+			if (!strlen((string)$this->getItemField($id,'IBLOCK_SECTION_ID'))) $tops[]=$id;
+		if (count($tops)==1) return $tops[0];
+		echo "Разделов верхнего уровня в оргструктуре портала: ".count($tops)." (ожидался ровно один)\n";
+		return null;
+	}
+
+	/**
 	 * Загружает один элемент из Bitrix
 	 * reload названо потому что для загрузки по ID надо знать этот ID, что как бы намекает
 	 * @return bool успех или неудача загрузки

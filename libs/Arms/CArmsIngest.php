@@ -16,6 +16,9 @@ require_once dirname(__FILE__) . "/../SAP/CSapAbsentsStructure.php";
  */
 class CArmsIngest {
 
+	/** порог ошибок подряд при приёме отсутствий: дальше это уже не данные, а API */
+	const MAX_FAIL_STREAK = 20;
+
 	private CArmsWriter $writer;
 	/** @var array Objid(SAP) => org_id(ARMS) */
 	private array $inventoryOrgs;
@@ -110,6 +113,10 @@ class CArmsIngest {
 	 * Обратный проход: отсутствия source=sap, исчезнувшие из выгрузки SAP,
 	 * удаляются из ARMS (manual и другие источники не трогаются).
 	 *
+	 * Записи, на которых API ответил ошибкой, считаются в failed и пропускаются
+	 * (в ARMS на (source, external_id) уникальный индекс, и сам upsert умеет
+	 * подобрать существующую запись, если её не было в карте — см. CArmsWriter).
+	 *
 	 * @param CSapAbsentsStructure $sapAbsents загруженные отсутствия SAP
 	 * @param int|null $limit ограничение (для тестов)
 	 * @return array счётчики
@@ -124,7 +131,7 @@ class CArmsIngest {
 		$seen = [];
 
 		$c = ['created' => 0, 'updated' => 0, 'ok' => 0];
-		$processed = 0; $skippedUser = 0; $skippedType = 0;
+		$processed = 0; $skippedUser = 0; $skippedType = 0; $failed = 0; $failStreak = 0;
 		foreach ($sapAbsents->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
 			$a = $sapAbsents->getItem($id);
@@ -142,15 +149,28 @@ class CArmsIngest {
 			//выгрузка в Bitrix использует его как название; для прочих — текст источника
 			$comment = ($code === 'ASSIGNMENT') ? static::tripComment($a) : ($a['Abstext'] ?? null);
 
-			$res = $this->writer->upsertAbsence([
-				'user_id'     => $userId,
-				'type'        => $code,
-				'date_from'   => $a['Begda'],
-				'date_to'     => $a['Endda'],
-				'comment'     => $comment,
-				'source'      => 'sap',
-				'external_id' => $id,
-			], $existing[$id] ?? null);
+			//отдельная битая запись не должна ронять весь приём: считаем и идём дальше
+			//(в $seen такая не попадает, но обратный проход её не тронет — она есть в SAP)
+			try {
+				$res = $this->writer->upsertAbsence([
+					'user_id'     => $userId,
+					'type'        => $code,
+					'date_from'   => $a['Begda'],
+					'date_to'     => $a['Endda'],
+					'comment'     => $comment,
+					'source'      => 'sap',
+					'external_id' => $id,
+				], $existing[$id] ?? null);
+			} catch (RuntimeException $e) {
+				fwrite(STDERR, "ОШИБКА: отсутствие $id: " . $e->getMessage() . "\n");
+				$failed++;
+				//сыплется подряд — дело не в записях, а в API: дальше идти бессмысленно
+				if (++$failStreak > static::MAX_FAIL_STREAK)
+					throw new RuntimeException("приём отсутствий: " . static::MAX_FAIL_STREAK .
+						" ошибок подряд (всего $failed), прерываюсь");
+				continue;
+			}
+			$failStreak = 0;
 			$c[$res['action']]++;
 			$seen[$id] = true;
 			$processed++;
@@ -172,6 +192,7 @@ class CArmsIngest {
 			'skippedUser' => $skippedUser,
 			'skippedType' => $skippedType,
 			'removed'     => $removed,
+			'failed'      => $failed,
 		];
 	}
 

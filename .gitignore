@@ -5,3 +5,4 @@ config.php*
 .idea
 portal-vac.*
 portal2.*
+cache/*

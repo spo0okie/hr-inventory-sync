@@ -140,6 +140,9 @@ class CArmsUserList extends COrgStructureStorage {
 	 * (голый hr_id; коды SAP уникальны между организациями, см. CArmsOrgStructure).
 	 */
 	private function findBxDep($code) {
+		//пустой код искать нельзя: fieldCompare считает совпадением любую секцию
+		//без CODE (напр. обёртку портала) и сотрудник уехал бы в чужой узел
+		if (!strlen((string)$code)) return null;
 		$bxCode = $this->bxOrg->findIdBy('CODE', $code);
 		if (!is_null($bxCode)) return $bxCode;
 		$bare = CArmsOrgStructure::bareCode($code);
@@ -176,12 +179,39 @@ class CArmsUserList extends COrgStructureStorage {
 			$this->getItemField($id, 'uid'),
 			$this->getItemField($id, 'Orgeh')
 		);
-		$fields = [
-			'ACTIVE'        => 'Y',
-			'UF_DEPARTMENT' => $departments,
-		];
+		$fields = ['ACTIVE' => 'Y'];
+		/*
+		 * Пустой набор подразделений не пишем: UF_DEPARTMENT в портале фактически
+		 * обязательное, и запись [] выкинула бы сотрудника из структуры компании.
+		 * Пустым набор выходит, когда подразделения сотрудника нет в портале или
+		 * его нет вовсе (ручная запись в ARMS без оргструктуры) — устаревшее
+		 * подразделение в этом случае меньшее зло, чем его отсутствие.
+		 */
+		if ($departments) $fields['UF_DEPARTMENT'] = $departments;
+		else echo "ARMS #$id ('" . $this->getItemField($id, 'Ename') . "'): подразделение не определено, UF_DEPARTMENT не трогаем\n";
 		if ($this->isDismissed($id)) $fields['ACTIVE'] = 'N';
 		return $fields;
+	}
+
+	/*
+	 * Ставит сотрудников организаций без оргструктуры на синтетические корни
+	 * (см. CArmsOrgStructure): в такой организации подразделений нет вовсе, и
+	 * собственный Orgeh записи вести некуда — в том числе если он непуст, но
+	 * указывает на несуществующий узел (ручной ввод, остатки прежних выгрузок).
+	 * @param array $roots карта org_id => код корневого узла
+	 * @return int сколько записей переставлено
+	 */
+	public function applyOrgRoots($roots) {
+		if (!is_array($roots) || !count($roots)) return 0;
+		$n = 0;
+		foreach ($this->data as $id => $u) {
+			$org = isset($u['org_id']) ? (string)$u['org_id'] : '';
+			if (!strlen($org) || !isset($roots[$org])) continue;
+			if ($this->data[$id]['Orgeh'] === $roots[$org]) continue;
+			$this->data[$id]['Orgeh'] = $roots[$org];
+			$n++;
+		}
+		return $n;
 	}
 
 	/*

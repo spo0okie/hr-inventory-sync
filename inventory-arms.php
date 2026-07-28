@@ -106,8 +106,8 @@ if (isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
 	echo "Ingesting absences...\n";
 	$ra = $ingest->ingestAbsences($sapAbsents);
 	echo "  absences: создано {$ra['created']}, обновлено {$ra['updated']}, без изменений {$ra['ok']}, " .
-		"удалено исчезнувших {$ra['removed']}, пропущено: без сотрудника в ARMS {$ra['skippedUser']}, " .
-		"с неизвестным типом {$ra['skippedType']}\n";
+		"удалено исчезнувших {$ra['removed']}, ошибок {$ra['failed']}, пропущено: без сотрудника в ARMS " .
+		"{$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}\n";
 }
 
 } catch (RuntimeException $e) {
