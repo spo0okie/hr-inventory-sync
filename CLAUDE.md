@@ -89,6 +89,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `$dryRun` в конфиге: `inventory-arms.php` не пишет в ARMS, `portal.php`/`portal-absence.php` не пишут в Bitrix (`readOnly` у объектов хранилищ, пишущие методы логируют намерение `[DRY]`/`[DRY-RUN]`). Порядок выкатки — в [README.md](README.md).
 - `COrgStructureStorage::$readOnly` у любого хранилища Bitrix превращает запись в логирование.
 
+Мониторинг — zabbix через файлы-флажки: каждый синхронизирующий скрипт в конце прогона пишет число ошибок в свой файл (`reportSyncErrors()` из `OrgStruct.php`; `$syncErrorsFile` / `$portalErrorsFile` / `$absenceErrorsFile`). Zabbix сверяет содержимое (0 = хорошо) и давность записи — предохранители и фатал файл не обновляют, что ловится проверкой давности. Новые точки входа — заводить свой флажок; `portal.php` пишет его только в полных прогонах (одиночный запуск по LOGIN — отладка).
+
 ## Особенности Bitrix
 
 - Оргструктура — **секции инфоблока** с именем `Подразделения` (поиск по имени, `CBxOrgStructure::getIBlockByName()`).
