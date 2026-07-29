@@ -39,9 +39,23 @@ if (isset($sapCache) && strlen($sapCache)) {
 	echo "Refreshing SAP cache...\n";
 	system($sapCache);
 }
-if (isset($sapAbsenceCache) && strlen($sapAbsenceCache) && isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
+//выгрузок отсутствий у SAP несколько (основная и плановая), поэтому в конфиге и файлы,
+//и скрипты обновления кэша могут быть списками; строка — прежний вариант с одной выгрузкой
+$absenceFiles = [];
+if (isset($sapAbsenceFile))
+	$absenceFiles = is_array($sapAbsenceFile)
+		? $sapAbsenceFile						//путь => корневой элемент JSON
+		: (strlen($sapAbsenceFile) ? [$sapAbsenceFile => 'OAbsents'] : []);
+$absenceCaches = [];
+if (isset($sapAbsenceCache))
+	$absenceCaches = is_array($sapAbsenceCache)
+		? $sapAbsenceCache
+		: (strlen($sapAbsenceCache) ? [$sapAbsenceCache] : []);
+
+if ($absenceCaches && $absenceFiles) {
 	echo "Refreshing SAP absence cache...\n";
-	system($sapAbsenceCache);
+	//все выгрузки обновляются в одном прогоне: иначе файлы разъезжаются по времени
+	foreach ($absenceCaches as $cacheScript) system($cacheScript);
 }
 
 //проверка доступности API и авторизации до начала работы: лучше упасть с внятным
@@ -94,20 +108,27 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 }
 
 //приём отсутствий (если настроен кэш выгрузки отсутствий SAP)
-if (isset($sapAbsenceFile) && strlen($sapAbsenceFile)) {
+if ($absenceFiles) {
 	echo "Loading absences...\n";
 	$sapAbsents = new CSapAbsentsStructure();
-	$sapAbsents->loadFromJson($sapAbsenceFile);
+	//выгрузки складываются в одно хранилище, дубли схлопываются по составному ключу;
+	//порядок важен: первой грузится основная, её записи не перезаписываются плановыми
+	foreach ($absenceFiles as $absenceFile => $absenceRoot) {
+		$loaded = $sapAbsents->appendFromJson($absenceFile, $absenceRoot);
 
-	//предохранитель: как в absence.php
-	if (!is_array($sapAbsents->getIds()) || count($sapAbsents->getIds()) < 100)
-		die("Fail loading absences suspected (" . count((array)$sapAbsents->getIds()) . ")\n");
+		//предохранитель на каждую выгрузку, а не на итог (как в absence.php): обратный
+		//проход приёма удаляет из ARMS всё, чего нет в источнике, поэтому не загрузившийся
+		//файл при живых остальных молча снёс бы свои отсутствия
+		if ($loaded === false || $loaded < 100)
+			die("Fail loading absences suspected in $absenceFile (" . var_export($loaded, true) . ")\n");
+	}
 
 	echo "Ingesting absences...\n";
 	$ra = $ingest->ingestAbsences($sapAbsents);
 	echo "  absences: создано {$ra['created']}, обновлено {$ra['updated']}, без изменений {$ra['ok']}, " .
 		"удалено исчезнувших {$ra['removed']}, ошибок {$ra['failed']}, пропущено: без сотрудника в ARMS " .
-		"{$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}\n";
+		"{$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}; " .
+		"запланированных отпусков {$ra['planned']}\n";
 }
 
 } catch (RuntimeException $e) {

@@ -82,6 +82,36 @@ function initOrgStructure($dataSrc) {
 }
 
 /**
+ * Отсутствия для выгрузки в портал.
+ *
+ * Отдельного дескриптора в конфиге не требует: отсутствия лежат в том же ARMS,
+ * что и сотрудники, поэтому по умолчанию берётся дескриптор [usr]. Задать свой
+ * можно ключом [abs].
+ *
+ * @param $dataSrc
+ * @return COrgStructureStorage
+ */
+function initAbsenceList($dataSrc) {
+	echo "Initializing Absence DataSource structure\n";
+	$descr = isset($dataSrc['abs']) ? $dataSrc['abs'] : $dataSrc['usr'];
+	validateDataSource($descr, '[abs]');
+
+	switch ($descr['src']) {
+		case 'arms':
+			echo "ARMS mode\n";
+			require_once "Arms/CArmsAbsenceList.php";
+			$absents = new CArmsAbsenceList();
+			break;
+		default:
+			//в портал отсутствия выгружаются только из инвентаризации: она хаб,
+			//прямое чтение источника здесь означало бы вторую точку правды
+			die('Unknown absence data source (в портал отсутствия идут только из ARMS)');
+	}
+	loadDataSource($descr, $absents);
+	return $absents;
+}
+
+/**
  * @param $dataSrc
  * @return COrgStructureStorage
  */

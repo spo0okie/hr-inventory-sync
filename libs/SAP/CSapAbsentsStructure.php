@@ -24,6 +24,7 @@
  * 			13		UNKNOWN				прогул
  * 			14		OTHER				другое
  * 			293		PERSONAL			персональные календари
+ * 			367		VACATION_PLAN		отпуск запланированный
  * 
  * HINT:2
  * 	В САПе нет ключей для отпусков, ключ состоит из полей 
@@ -59,6 +60,7 @@
  * 	13		UNKNOWN				прогул
  * 	14		OTHER				другое
  * 	293		PERSONAL			персональные календари
+ * 	367		VACATION_PLAN		отпуск запланированный (в SAP — заблокированная запись, Sprps=X)
  * со стороны САП сортировка предоставлена Перовой Светланой
  * согласовано с Халаковой А.А.
  */
@@ -146,6 +148,51 @@ class CSapAbsentsStructure extends COrgStructureStorage {
 		return is_array($this->data);
 	}
 	
+	/*
+	 * Догружает отсутствия из ещё одного JSON файла в то же хранилище.
+	 *
+	 * Выгрузок отсутствий у SAP несколько: основная (YfmPersAbsents, все типы,
+	 * только утверждённые записи, корень OAbsents) и плановая (YfmVacationNotifications,
+	 * только основной отпуск, включая ещё не утверждённые — с Sprps=X, корень OVacations).
+	 * Записи в них пересекаются, поэтому файлы объединяются в одно хранилище по
+	 * составному ключу Pernr-Awart-Begda-Endda (он же external_id в ARMS) — дубли
+	 * схлопываются сами.
+	 *
+	 * Уже загруженные записи не перезаписываются: первой грузится основная выгрузка,
+	 * её данные утверждённые, а в плановой та же запись может быть ещё заблокирована.
+	 *
+	 * @param string $filename файл для загрузки
+	 * @param string $child имя дочерней структуры (корневой элемент выгрузки)
+	 * @param array $item поля составного ключа
+	 * @return int|false число записей в файле или false при неудаче чтения
+	 */
+	public function appendFromJson($filename,$child='OAbsents',$item=['Pernr','Awart','Begda','Endda']){
+		if (!is_file($filename)) {
+			echo "absence cache not found: $filename\n";
+			return false;
+		}
+		$rawData=file_get_contents($filename);
+		if ($rawData===false || !strlen($rawData)) {
+			echo "empty absence cache: $filename\n";
+			return false;
+		}
+		$jsonData=json_decode($rawData);
+		//пустая выгрузка (нет ни одной записи) от битой не отличается — обе не годятся:
+		//обратный проход приёма удаляет из ARMS всё, чего нет в источнике
+		if (!isset($jsonData->$child->item)) {
+			echo "no $child->item in absence cache: $filename\n";
+			return false;
+		}
+
+		$new=COrgStructureStorage::dataFromObjlist($jsonData->$child->item,$item);
+		if (!is_array($this->data)) $this->data=[];
+		$before=count($this->data);
+		$this->data=$this->data+$new;	//левые ключи выигрывают
+
+		echo count($new)." items loaded from $filename (".(count($this->data)-$before)." new)\n";
+		return count($new);
+	}
+
 	/*
 	 * Конвертирует тип отсутствия с САП кодов в Битрикс коды:
 	 * @param string $sapType код отсутствия в сапе

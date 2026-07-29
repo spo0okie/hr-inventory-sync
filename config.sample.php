@@ -63,8 +63,18 @@ $dryRun = true;
 $sapCache        = '/opt/SAPcache/portal.php';                    //обновить кэш оргструктуры и сотрудников
 $sapCacheFile    = '/opt/SAPcache/cache/orgStruct.cache.json';    //куда он пишет (path источника sap выше)
 $sapCacheDir     = '/opt/SAPcache/cache/';                        //каталог кэшей (фотографии)
-$sapAbsenceCache = '/opt/SAPcache/absence.php';                   //обновить кэш отсутствий
-$sapAbsenceFile  = '/opt/SAPcache/cache/absence.cache.json';      //куда он пишет; закомментируйте, чтобы отключить приём отсутствий
+//выгрузок отсутствий может быть несколько: основная (все типы, только утверждённые записи)
+//и плановая (только отпуска, включая ещё не утверждённые — они приходят с Sprps=X и
+//принимаются в ARMS с типом VACATION_PLAN). Файлы объединяются в одно хранилище по
+//составному ключу Pernr-Awart-Begda-Endda, дубли схлопываются; порядок важен — записи
+//первой выгрузки не перезаписываются последующими.
+//Скрипты обновления — список, файлы — путь => корневой элемент JSON выгрузки.
+//Закомментируйте $sapAbsenceFile, чтобы отключить приём отсутствий.
+$sapAbsenceCache = ['/opt/SAPcache/absence.php', '/opt/SAPcache/absence2.php'];
+$sapAbsenceFile  = [
+	'/opt/SAPcache/cache/absence.cache.json'  => 'OAbsents',      //YfmPersAbsents, все типы отсутствий
+	'/opt/SAPcache/cache/absence2.cache.json' => 'OVacations',    //YfmVacationNotifications, плановые отпуска
+];
 $sapPhotoCache   = '/opt/SAPcache/photo.php';                     //выгрузка фото одного сотрудника: <pernr> <файл>
 
 // ===== Bitrix (portal.php и сервисы портала) =====

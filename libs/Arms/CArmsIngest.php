@@ -2,6 +2,7 @@
 require_once dirname(__FILE__) . "/CArmsWriter.php";
 require_once dirname(__FILE__) . "/../Abstract/COrgStructureStorage.php";
 require_once dirname(__FILE__) . "/../SAP/CSapAbsentsStructure.php";
+require_once dirname(__FILE__) . "/../Abstract/CAbsenceTypes.php";
 
 /*
  * Оркестрация приёма источника (SAP/1C) в ARMS через REST.
@@ -64,20 +65,27 @@ class CArmsIngest {
 	}
 
 	/*
-	 * Соответствие ID типа отсутствия Bitrix -> нормализованный код ARMS.
+	 * Код запланированного, но ещё не утверждённого отпуска.
+	 *
+	 * В SAP такие записи приходят из плановой выгрузки заблокированными (Sprps=X,
+	 * Sperrkennzeichen инфотипа) — тип у них тот же основной отпуск, отличается статус.
+	 * Отдельный код нужен, чтобы инвентаризация и портал показывали их как
+	 * «Запланированный отпуск»: даты у них могут ещё сдвинуться.
+	 *
+	 * Awart в источнике при этом не подменяется: он входит в составной ключ записи
+	 * (external_id), а утверждение отпуска — смена статуса той же записи, а не новая.
+	 * Так ключ остаётся натуральным, а upsert превращает плановый отпуск в обычный
+	 * без пересоздания записи.
+	 */
+	const ABS_TYPE_PLANNED = 'VACATION_PLAN';
+
+	/*
+	 * Соответствие ID типа отсутствия Bitrix -> нормализованный код ARMS живёт в
+	 * общем словаре CAbsenceTypes: он же нужен выгрузке ARMS -> Bitrix на другом
+	 * хосте, а две копии таблицы разъехались бы молча.
 	 * Группировка кодов SAP (Awart) по типам остаётся в согласованной таблице
 	 * CSapAbsentsStructure::$absentsTypes — здесь только конвертация её результата.
 	 */
-	public static array $absTypeCodes = [
-		8   => 'VACATION',
-		9   => 'ASSIGNMENT',
-		10  => 'LEAVESICK',
-		11  => 'LEAVEMATERNITY',
-		12  => 'LEAVEUNPAYED',
-		13  => 'UNKNOWN',
-		14  => 'OTHER',
-		293 => 'PERSONAL',
-	];
 
 	/*
 	 * Текст командировки по данным SAP: "Командировка в {Город} ({Страна})".
@@ -132,14 +140,22 @@ class CArmsIngest {
 
 		$c = ['created' => 0, 'updated' => 0, 'ok' => 0];
 		$processed = 0; $skippedUser = 0; $skippedType = 0; $failed = 0; $failStreak = 0;
+		$planned = 0; $plannedOther = 0;
 		foreach ($sapAbsents->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
 			$a = $sapAbsents->getItem($id);
 
 			//нормализация типа: Awart -> Bitrix ID (согласованная таблица) -> код ARMS
 			$bxType = CSapAbsentsStructure::absTypeFromSap($a['Awart']);
-			$code = static::$absTypeCodes[$bxType] ?? null;
+			$code = CAbsenceTypes::codeByBxId($bxType);
 			if (is_null($code)) { $skippedType++; continue; }
+
+			//заблокированная запись инфотипа = отпуск запланирован, но не утверждён
+			if (($a['Sprps'] ?? '') === 'X') {
+				if ($code === 'VACATION') { $code = static::ABS_TYPE_PLANNED; $planned++; }
+				//флаг на другом типе — сигнал, а не повод угадывать: грузим как обычное
+				else $plannedOther++;
+			}
 
 			//резолв сотрудника по табельному
 			$userId = $empMap[(string)$a['Pernr']] ?? null;
@@ -188,11 +204,16 @@ class CArmsIngest {
 			}
 		}
 
+		if ($plannedOther)
+			fwrite(STDERR, "ВНИМАНИЕ: записей с Sprps=X не на отпуске: $plannedOther " .
+				"(загружены как обычные отсутствия)\n");
+
 		return $c + [
 			'skippedUser' => $skippedUser,
 			'skippedType' => $skippedType,
 			'removed'     => $removed,
 			'failed'      => $failed,
+			'planned'     => $planned,
 		];
 	}
 

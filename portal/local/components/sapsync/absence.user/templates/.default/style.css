@@ -1,0 +1,54 @@
+.sapsync-absence {
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.sapsync-absence--empty {
+	color: #8b95a1;
+}
+
+.sapsync-absence__item {
+	padding: 6px 0;
+	border-bottom: 1px solid #edeef0;
+}
+
+.sapsync-absence__item:last-child {
+	border-bottom: none;
+}
+
+.sapsync-absence__item--current {
+	font-weight: bold;
+}
+
+/* цветная метка типа: коды совпадают с типами отсутствия в ARMS */
+.sapsync-absence__mark {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	margin-right: 6px;
+	border-radius: 50%;
+	background: #a8adb4;
+	vertical-align: middle;
+}
+
+.sapsync-absence__mark--vacation		{ background: #4ba82e; }
+.sapsync-absence__mark--vacation_plan	{ background: #a5d6a7; }
+.sapsync-absence__mark--assignment		{ background: #2fc6f6; }
+.sapsync-absence__mark--leavesick		{ background: #f0a30a; }
+.sapsync-absence__mark--leavematernity	{ background: #e18ac4; }
+.sapsync-absence__mark--leaveunpayed	{ background: #b0aaf5; }
+
+.sapsync-absence__dates {
+	color: #6a737c;
+	white-space: nowrap;
+}
+
+.sapsync-absence__now {
+	margin-left: 6px;
+	padding: 1px 5px;
+	border-radius: 8px;
+	background: #4ba82e;
+	color: #fff;
+	font-size: 11px;
+	font-weight: normal;
+}
