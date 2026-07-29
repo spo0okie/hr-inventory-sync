@@ -2,6 +2,7 @@ proxy
 *.csv
 *.json
 config.php*
+*.doku.txt
 .idea
 portal-vac.*
 portal2.*
