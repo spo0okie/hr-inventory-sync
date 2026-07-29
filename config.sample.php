@@ -8,7 +8,10 @@
  *                         $sapCache*, $sapAbsence* (отсутствия), $sapPhotoCache (режим photos),
  *                         $sapPushUserData (обратная синхронизация контактов в SAP),
  *                         $syncErrorsFile (флажок ошибок для zabbix)
- *   portal.php          — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root, $grpList*, $managersTitles
+ *   portal.php          — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root, $grpList*,
+ *                         $managersTitles, $portalErrorsFile (флажок ошибок для zabbix)
+ *   portal-absence.php  — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root,
+ *                         $absenceErrorsFile (флажок ошибок для zabbix)
  *   absenceSubscr.php   — $bitrix_root
  *   bDayReminder.php    — $bitrix_root, $bdayRemindMail
  */
@@ -55,11 +58,13 @@ $inventory_import = [
 
 // ===== мониторинг =====
 
-//флажок ошибок для zabbix: inventory-arms.php в конце прогона пишет сюда число
-//ошибок (0 — всё хорошо). Мониторинг сверяет содержимое (должен быть 0) и
-//давность записи (файл не старше периода запусков: фатал и предохранители
-//файл не обновляют). Закомментируйте, чтобы отключить.
-$syncErrorsFile = '/var/log/inventory.sap.sync.err';
+//флажки ошибок для zabbix: скрипт в конце прогона пишет в свой файл число ошибок
+//(0 — всё хорошо). Мониторинг сверяет содержимое (должен быть 0) и давность
+//записи (файл не старше периода запусков: фатал и предохранители файл не
+//обновляют). Закомментируйте, чтобы отключить.
+$syncErrorsFile    = '/var/log/inventory.sap.sync.err';  //inventory-arms.php (хост инвентаризации)
+$portalErrorsFile  = '/var/log/SAPsync.err';             //portal.php, только полные прогоны (хост Bitrix)
+$absenceErrorsFile = '/var/log/SAPabsents.err';          //portal-absence.php (хост Bitrix)
 
 // ===== режим dry-run =====
 

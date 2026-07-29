@@ -148,9 +148,12 @@ $known=count($bxAbsents->getSapIds());
 $share=$known?count($toRemove)/$known:0;
 echo "  к удалению ".count($toRemove)." из $known (".round($share*100,1)."%)\n";
 
+$syncErrors=$failed;
 if ($share>ABSENCE_MAX_REMOVE_SHARE) {
 	echo "  СЛИШКОМ МНОГО: порог ".(ABSENCE_MAX_REMOVE_SHARE*100)."%, удаление пропущено.\n";
 	echo "  Похоже на неполную выгрузку ARMS или съехавшее сопоставление пользователей — разберитесь до следующего прогона.\n";
+	//иначе состояние «удаления молча пропускаются каждый прогон» никто не заметит
+	$syncErrors++;
 } else {
 	$removed=0; $delFailed=0;
 	foreach ($toRemove as $sapID) {
@@ -161,6 +164,10 @@ if ($share>ABSENCE_MAX_REMOVE_SHARE) {
 		ob_flush();
 	}
 	echo "  удалено $removed, ошибок удаления $delFailed\n";
+	$syncErrors+=$delFailed;
 }
+
+//флажок ошибок для zabbix
+reportSyncErrors(isset($absenceErrorsFile)?$absenceErrorsFile:'', $syncErrors);
 
 echo date('c')." Script complete\n";

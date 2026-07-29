@@ -18,20 +18,13 @@ ini_set('display_errors', 'stderr');
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 echo date('c') . " Script started\n";
 
-//флажок ошибок для мониторинга (zabbix): в файл $syncErrorsFile пишется число
-//ошибок прогона (0 — всё хорошо). Мониторинг сверяет содержимое и давность
-//записи; при срабатывании предохранителей (die) файл не обновляется вовсе —
-//это ловится проверкой давности
-function reportSyncErrors($count) {
-	global $syncErrorsFile;
-	if (isset($syncErrorsFile) && strlen($syncErrorsFile))
-		file_put_contents($syncErrorsFile, $count);
-}
-
 require_once "config.php";
 require_once "libs/OrgStruct.php";
 require_once "libs/Arms/CArmsIngest.php";
 require_once "libs/Abstract/CUserPhotoStruct.php";
+
+//флажок ошибок для мониторинга (zabbix), см. reportSyncErrors в OrgStruct.php
+$errFlagFile = isset($syncErrorsFile) ? $syncErrorsFile : '';
 
 //клиент и писатель ARMS
 $client = new CArmsRestClient($arms_api['url'], $arms_api['user'] ?? '', $arms_api['pass'] ?? '');
@@ -74,7 +67,7 @@ try {
 	$client->whoami();
 } catch (RuntimeException $e) {
 	fwrite(STDERR, "ОШИБКА: ARMS API недоступен: " . $e->getMessage() . "\n");
-	reportSyncErrors(1);
+	reportSyncErrors($errFlagFile, 1);
 	exit(1);
 }
 
@@ -168,9 +161,9 @@ if ($absenceFiles) {
 } catch (RuntimeException $e) {
 	//ошибки ARMS API (RBAC/валидация/сеть) — с телом ответа, см. CArmsRestClient::apiError
 	fwrite(STDERR, "ОШИБКА: " . $e->getMessage() . "\n");
-	reportSyncErrors($syncErrors + 1);
+	reportSyncErrors($errFlagFile, $syncErrors + 1);
 	exit(1);
 }
 
-reportSyncErrors($syncErrors);
+reportSyncErrors($errFlagFile, $syncErrors);
 echo date('c') . " Script complete\n";

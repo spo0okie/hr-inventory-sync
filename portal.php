@@ -90,6 +90,9 @@ if (!empty($dryRun)) {
 //режим photos: дополнительно синхронизировать фотографии из сканов ARMS
 $withPhotos = in_array('photos', $argv);
 
+//счётчик ошибок прогона для флажка мониторинга (zabbix, $portalErrorsFile)
+$syncErrors = 0;
+
 ob_flush();
 
 //подключаем базы друг к другу
@@ -144,7 +147,12 @@ if ($argc==1 || $argv[1]=='photos') {
 			continue;
 		}
 
-		echo $armsOrg->ckBxItemFields($armsID) ? 'OK' : 'Err';
+		if ($armsOrg->ckBxItemFields($armsID)) {
+			echo 'OK';
+		} else {
+			echo 'Err';
+			$syncErrors++;
+		}
 		echo "\n";
 		ob_flush();
 	}
@@ -188,10 +196,14 @@ foreach ($userIds as $bxID) {
 	$prefx.=str_pad($armsID,12);
 
 	//проверка полей (ACTIVE, UF_DEPARTMENT; прочее приходит из АД)
-	$prefx.='Fields - '.str_pad(($bxUsers->correctItem($bxID)?'OK ':'Err'),3).'  ';
+	$fieldsOk=$bxUsers->correctItem($bxID);
+	if (!$fieldsOk) $syncErrors++;
+	$prefx.='Fields - '.str_pad(($fieldsOk?'OK ':'Err'),3).'  ';
 
 	//проверяем наличие пользователя в группе в которой должны быть все
-	$prefx.='All grp - '.str_pad(((CBxUserList::fixUserGroups($bxID, $grpListAll_id))?'OK ':'Err'),3)."  ";
+	$grpOk=CBxUserList::fixUserGroups($bxID, $grpListAll_id);
+	if (!$grpOk) $syncErrors++;
+	$prefx.='All grp - '.str_pad(($grpOk?'OK ':'Err'),3)."  ";
 
 	/*
 	 * Фотографии (режим photos): портрет из сканов ARMS.
@@ -212,6 +224,7 @@ foreach ($userIds as $bxID) {
 			$blob = $armsUsers->downloadScan($portrait['id']);
 			if (is_null($blob) || !strlen($blob)) {
 				$photoStatus = 'ERROR';
+				$syncErrors++;
 			} else {
 				//пишем во временный файл с осмысленным именем: Bitrix проверяет
 				//картинку и по расширению имени тоже
@@ -234,7 +247,12 @@ foreach ($userIds as $bxID) {
 				unlink($tmp);
 				//критерий успеха — перечитанная отметка совпала (updItem перезагружает запись);
 				//сверять PERSONAL_PHOTO бессмысленно: Bitrix кладёт туда id нового файла
-				$photoStatus = ($bxUsers->getItemField($bxID, 'UF_SAP_PHOTO_SYNC') == $portrait['date']) ? 'updated' : 'ERROR';
+				if ($bxUsers->getItemField($bxID, 'UF_SAP_PHOTO_SYNC') == $portrait['date']) {
+					$photoStatus = 'updated';
+				} else {
+					$photoStatus = 'ERROR';
+					$syncErrors++;
+				}
 			}
 		}
 		$prefx .= 'Photo - '.str_pad($photoStatus, 14).' ';
@@ -245,9 +263,11 @@ foreach ($userIds as $bxID) {
 	$manager=false;
 	foreach ($managersTitles as $title)	if (false!==strpos(mb_strtolower($bxUsers->getItemField($bxID, 'WORK_POSITION')),$title))
 		$manager=true;
-	if ($manager)
-		$mgr_prfx="Manger grp - ".(CBxUserList::fixUserGroups($bxID, $grpListManagers_id)?'OK ':'Err');
-	else
+	if ($manager) {
+		$mgrOk=CBxUserList::fixUserGroups($bxID, $grpListManagers_id);
+		if (!$mgrOk) $syncErrors++;
+		$mgr_prfx="Manger grp - ".($mgrOk?'OK ':'Err');
+	} else
 		$mgr_prfx='';
 	$prefx.=str_pad($mgr_prfx,18);
 
@@ -262,5 +282,10 @@ foreach ($userIds as $bxID) {
 	echo "\n";
 	ob_flush();
 }
+
+//флажок ошибок для zabbix — только полные прогоны: запуск по одному пользователю
+//(отладка) не должен переписывать результат последнего полного
+if ($argc==1 || $argv[1]=='photos')
+	reportSyncErrors(isset($portalErrorsFile)?$portalErrorsFile:'', $syncErrors);
 
 echo date('c')."Script complete\n";
