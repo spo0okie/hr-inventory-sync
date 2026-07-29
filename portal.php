@@ -10,13 +10,17 @@
  * (XML_ID) / хешу СНИЛС (UF_INN) / ФИО.
  *
  * Режимы:
- *   php portal.php            # вся оргструктура и все пользователи
- *   php portal.php ivanov.i   # один пользователь по LOGIN (без прохода по структуре)
+ *   php portal.php                 # вся оргструктура и все пользователи
+ *   php portal.php photos         # то же + фотографии (портреты из сканов ARMS)
+ *   php portal.php ivanov.i       # один пользователь по LOGIN (без прохода по структуре)
+ *   php portal.php ivanov.i photos # один пользователь вместе с фотографией
+ *
+ * Фотографии: портрет сотрудника — последний по дате скан ARMS с именем
+ * photo-{pernr}-{дата} (их заливает приём inventory-arms.php photos). Дата из
+ * имени сверяется с UF_SAP_PHOTO_SYNC пользователя портала, байты качаются
+ * только при расхождении и пишутся в PERSONAL_PHOTO.
  *
  * $dryRun=true в конфиге — не писать в Bitrix, только логировать намерения.
- *
- * Фотографии этим скриптом не синхронизируются: их приёмом в ARMS занимается
- * inventory-arms.php photos, выгрузка из сканов ARMS в Bitrix — отдельная задача.
  */
 
 /**
@@ -83,6 +87,9 @@ if (!empty($dryRun)) {
 	$bxUsers->readOnly = true;
 }
 
+//режим photos: дополнительно синхронизировать фотографии из сканов ARMS
+$withPhotos = in_array('photos', $argv);
+
 ob_flush();
 
 //подключаем базы друг к другу
@@ -107,7 +114,7 @@ foreach ( $grpListManagers as $grp )
 		die ( "Can't find group $grp" );
 
 
-if ($argc==1) {
+if ($argc==1 || $argv[1]=='photos') {
 	echo "Checking structure\n";
 
 	/*
@@ -151,7 +158,7 @@ echo "Checking users\n";
  * Пользователи, не найденные в ARMS, деактивируются (если были активны).
  */
 
-if ($argc>1) {
+if ($argc>1 && $argv[1]!='photos') {
 	$userId=$bxUsers->findIdBy('LOGIN',$argv[1]);
 	if (!$userId) die('User '.$argv[1].' not found in Bitrix');
 	$userIds=[$userId];
@@ -185,6 +192,53 @@ foreach ($userIds as $bxID) {
 
 	//проверяем наличие пользователя в группе в которой должны быть все
 	$prefx.='All grp - '.str_pad(((CBxUserList::fixUserGroups($bxID, $grpListAll_id))?'OK ':'Err'),3)."  ";
+
+	/*
+	 * Фотографии (режим photos): портрет из сканов ARMS.
+	 * Актуальность определяется датой из имени скана против UF_SAP_PHOTO_SYNC,
+	 * байты качаются только при расхождении
+	 */
+	if ($withPhotos) {
+		$bxStamp = $bxUsers->getItemField($bxID, 'UF_SAP_PHOTO_SYNC');
+		$portrait = $armsUsers->getPortrait($armsID);
+		if (is_null($portrait)) {
+			$photoStatus = 'ARMS missing';
+		} elseif ($portrait['date'] == $bxStamp) {
+			$photoStatus = 'OK';
+		} elseif (!empty($dryRun)) {
+			echo "[DRY-RUN] пользователь #$bxID: обновил бы фото (скан #".$portrait['id'].", ".$portrait['date'].", в портале '".$bxStamp."')\n";
+			$photoStatus = 'would update';
+		} else {
+			$blob = $armsUsers->downloadScan($portrait['id']);
+			if (is_null($blob) || !strlen($blob)) {
+				$photoStatus = 'ERROR';
+			} else {
+				//пишем во временный файл с осмысленным именем: Bitrix проверяет
+				//картинку и по расширению имени тоже
+				$pernr = $armsUsers->getItemField($armsID, 'Pernr');
+				$tmp = sys_get_temp_dir().'/photo-'.$pernr.'-'.$portrait['date'].'.'.$portrait['format'];
+				file_put_contents($tmp, $blob);
+				$arFile = CFile::MakeFileArray($tmp);
+				$arFile['name'] = 'photo-'.$pernr.'-'.$portrait['date'].'.'.$portrait['format'];
+				$arFile['MODULE_ID'] = 'main';
+				//старое фото удаляем, как делал легаси-механизм
+				$oldPhoto = $bxUsers->getItemField($bxID, 'PERSONAL_PHOTO');
+				if (strlen($oldPhoto)) {
+					$arFile['del'] = 'Y';
+					$arFile['old_file'] = $oldPhoto;
+				}
+				$bxUsers->updItem($bxID, array(
+					'PERSONAL_PHOTO'    => $arFile,
+					'UF_SAP_PHOTO_SYNC' => $portrait['date'],
+				));
+				unlink($tmp);
+				//критерий успеха — перечитанная отметка совпала (updItem перезагружает запись);
+				//сверять PERSONAL_PHOTO бессмысленно: Bitrix кладёт туда id нового файла
+				$photoStatus = ($bxUsers->getItemField($bxID, 'UF_SAP_PHOTO_SYNC') == $portrait['date']) ? 'updated' : 'ERROR';
+			}
+		}
+		$prefx .= 'Photo - '.str_pad($photoStatus, 14).' ';
+	}
 
 	//проверяем наличие пользователя в группах для руководителей
 	//пробегаемся по ключевым словам должностей руководителей и ищем их в должности обрабатываемого пользователя

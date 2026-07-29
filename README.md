@@ -21,6 +21,7 @@ SAP ──────┐
 | `inventory-arms.php` | SAP → ARMS  | оргструктура, сотрудники, отсутствия |
 | `inventory-arms.php photos` | SAP → ARMS | то же + фотографии (сканы, привязанные к сотруднику) |
 | `portal.php`        | ARMS → Bitrix | оргструктура, сотрудники, группы |
+| `portal.php photos` | ARMS → Bitrix | то же + фотографии (портрет = последний по дате скан `photo-{pernr}-{дата}`; дата сверяется с `UF_SAP_PHOTO_SYNC`, байты качаются только при расхождении) |
 | `portal.php ivanov.i` | ARMS → Bitrix | один пользователь по LOGIN (без прохода по структуре) |
 | `portal-absence.php` | ARMS → Bitrix | график отсутствий портала |
 

@@ -180,6 +180,38 @@ class CArmsRestClient {
 	}
 
 	/*
+	 * Скачивание файла как есть (без JSON-декодирования), напр. GET scans/download.
+	 * @param string $action путь экшена (scans/download)
+	 * @param array  $query  параметры (['id'=>...])
+	 * @return string сырые байты файла
+	 * @throws RuntimeException при сетевой ошибке или не-200 ответе
+	 */
+	public function downloadRaw($action, $query = array()) {
+		$url = $this->baseUrl . '/' . ltrim($action, '/');
+		if ($query) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($query);
+		$ch = curl_init($url);
+		$opts = array(
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_TIMEOUT        => $this->timeout,
+		);
+		if (strlen($this->user)) {
+			$opts[CURLOPT_USERPWD]  = $this->user . ':' . $this->password;
+			$opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
+		}
+		curl_setopt_array($ch, $opts);
+		$raw = curl_exec($ch);
+		if ($raw === false) {
+			$err = curl_error($ch);
+			curl_close($ch);
+			throw new RuntimeException("ARMS API download $url: $err");
+		}
+		$code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		curl_close($ch);
+		if ($code !== 200) throw new RuntimeException("ARMS API download $action -> HTTP $code: " . substr($raw, 0, 200));
+		return $raw;
+	}
+
+	/*
 	 * Загрузка файла (multipart/form-data), напр. POST scans/upload.
 	 * @param string $action   путь экшена (scans/upload)
 	 * @param string $filePath локальный файл

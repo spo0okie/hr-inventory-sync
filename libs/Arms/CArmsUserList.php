@@ -19,6 +19,8 @@ class CArmsUserList extends COrgStructureStorage {
 	private $bxOrg = null;
 	private $sapOrg = null;
 	private $orgDict = null;
+	/** @var CArmsRestClient сохраняется в loadFromRest — нужен для фотографий (сканы) */
+	private $client = null;
 
 	/*
 	 * Индексы для сопоставления (ключ -> список id записей). Без них getMainEmployment
@@ -62,6 +64,7 @@ class CArmsUserList extends COrgStructureStorage {
 	 * @return bool успех загрузки
 	 */
 	public function loadFromRest(CArmsRestClient $client, array $orgIds = []) {
+		$this->client = $client;
 		$this->data = [];
 		$rows = [];
 		if ($orgIds) {
@@ -212,6 +215,48 @@ class CArmsUserList extends COrgStructureStorage {
 			$n++;
 		}
 		return $n;
+	}
+
+	/*
+	 * Портрет сотрудника из сканов ARMS: сканы с именем photo-{pernr}-{дата},
+	 * портретом считается последний по дате (конвенция ARMS). SAP-дата фото
+	 * хранится в имени скана — она же пишется в UF_SAP_PHOTO_SYNC пользователя
+	 * Bitrix и служит признаком актуальности (сами байты не сравниваются).
+	 * @param mixed $id идентификатор записи ARMS (трудоустройства)
+	 * @return array|null ['id'=>ид скана, 'date'=>Y-m-d, 'format'=>расширение] или null
+	 */
+	public function getPortrait($id) {
+		if (is_null($this->client) || !$this->exist($id)) return null;
+		$pernr = (string)$this->getItemField($id, 'Pernr');
+		$best = null;
+		foreach ($this->client->getAll('scans', array('users_id' => $id, 'expand' => 'name')) as $s) {
+			//имя может приходить с расширением (зависит от версии ARMS) — сравниваем без него
+			$name = preg_replace('/\.[a-z0-9]+$/i', '', (string)(isset($s['name']) ? $s['name'] : ''));
+			if (!preg_match('/^photo-(.+)-(\d{4}-\d{2}-\d{2})$/', $name, $m)) continue; //не фото
+			if ((string)$m[1] !== $pernr) continue; //фото другого трудоустройства
+			if (is_null($best) || strcmp($m[2], $best['date']) > 0)
+				$best = array(
+					'id'     => $s['id'],
+					'date'   => $m[2],
+					'format' => strlen((string)(isset($s['format']) ? $s['format'] : '')) ? $s['format'] : 'jpg',
+				);
+		}
+		return $best;
+	}
+
+	/*
+	 * Байты файла скана (для записи фото в Bitrix).
+	 * @param mixed $scanId ид скана ARMS
+	 * @return string|null сырые байты или null при ошибке
+	 */
+	public function downloadScan($scanId) {
+		if (is_null($this->client)) return null;
+		try {
+			return $this->client->downloadRaw('scans/download', array('id' => $scanId));
+		} catch (RuntimeException $e) {
+			echo "ошибка скачивания скана #$scanId: " . $e->getMessage() . "\n";
+			return null;
+		}
 	}
 
 	/*
