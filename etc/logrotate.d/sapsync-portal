@@ -1,0 +1,16 @@
+# Ротация логов выгрузки инвентаризация -> портал (хост Bitrix).
+# Скопировать в /etc/logrotate.d/ на хосте портала.
+#
+# Маска накрывает SAPsync.log (portal.php) и SAPabsents.log (portal-absence.php).
+# Сознательно НЕ ротируются:
+#   SAPsync.last          — лог последнего прогона, перезаписывается tee каждый час;
+#   SAPsync.dupes[.current] — файлы дублей, их читает zabbix (logrt);
+#   *.err                 — флажки мониторинга (число ошибок последнего прогона).
+/var/log/SAP*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    notifempty
+    create 644 root root
+}

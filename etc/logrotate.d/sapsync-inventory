@@ -1,0 +1,14 @@
+# Ротация логов приёма SAP -> инвентаризация (хост инвентаризации).
+# Скопировать в /etc/logrotate.d/ на хосте, где по cron крутится inventory-arms.php.
+#
+# Ротируются только *.log (пишутся перенаправлением stdout/stderr в cron).
+# Файл-флажок мониторинга (*.err) сознательно не ротируется: это не лог,
+# а число ошибок последнего прогона — zabbix сверяет содержимое и давность.
+/var/log/inventory.sap.sync*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    notifempty
+    create 644 root root
+}
