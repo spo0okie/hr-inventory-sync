@@ -5,7 +5,8 @@
  *
  * Какие переменные нужны какому скрипту:
  *   inventory-arms.php  — $arms_api, $inventoryOrgs, $inventory_import, $dryRun,
- *                         $sapCache*, $sapAbsence* (отсутствия), $sapPhotoCache (режим photos)
+ *                         $sapCache*, $sapAbsence* (отсутствия), $sapPhotoCache (режим photos),
+ *                         $sapPushUserData (обратная синхронизация контактов в SAP)
  *   portal.php          — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root, $grpList*, $managersTitles
  *   absenceSubscr.php   — $bitrix_root
  *   bDayReminder.php    — $bitrix_root, $bdayRemindMail
@@ -76,6 +77,10 @@ $sapAbsenceFile  = [
 	'/opt/SAPcache/cache/absence2.cache.json' => 'OVacations',    //YfmVacationNotifications, плановые отпуска
 ];
 $sapPhotoCache   = '/opt/SAPcache/photo.php';                     //выгрузка фото одного сотрудника: <pernr> <файл>
+//обратная синхронизация контактов ARMS -> SAP (email из AD, телефоны из инвентаризации):
+//скрипт отправки одного контакта: <pernr> <тип 0010|0020|CELL> <значение>.
+//Закомментируйте, чтобы отключить обратную синхронизацию.
+$sapPushUserData = '/opt/SAPcache/pushUserData.php';
 
 // ===== Bitrix (portal.php и сервисы портала) =====
 

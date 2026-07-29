@@ -267,6 +267,69 @@ class CArmsIngest {
 		];
 	}
 
+	/*
+	 * Обратная синхронизация контактов ARMS -> SAP.
+	 *
+	 * Контакты (email, телефоны) ведутся не в SAP: email и мобильный приходят в ARMS
+	 * из AD, внутренний номер — из самой инвентаризации. SAP же должен их получать
+	 * обратно. Сверка — против значений SAP из выгрузки сотрудников (Email/ArbPhone/
+	 * MobPhone), отправка — через $pusher (внешний скрипт SAP-прокси) по одному
+	 * контакту: fn($pernr, $type, $value), типы SAP: 0010 email, 0020 внутренний,
+	 * CELL мобильный.
+	 *
+	 * Семантика сверки — как в легаси (годы на проде):
+	 *   - уволенные и сотрудники вне настроенных юрлиц пропускаются;
+	 *   - email отправляется только непустой и только при регистронезависимом
+	 *     отличии (пустой email в ARMS не затирает адрес в SAP);
+	 *   - телефоны отправляются при любом отличии, включая пустое значение —
+	 *     удаление номера в инвентаризации удаляет его и в SAP.
+	 *
+	 * @param CSapUserList $sapUsers сотрудники SAP (текущие значения контактов)
+	 * @param CSapOrgStructure $sapOrg оргструктура (для раскладки по юрлицам)
+	 * @param callable $pusher fn(string $pernr, string $type, string $value): void
+	 * @param int|null $limit ограничение (для тестов)
+	 * @return array счётчики
+	 */
+	public function pushContacts($sapUsers, $sapOrg, callable $pusher, $limit = null): array {
+		$empMap = $this->writer->fetchUsersMap();
+
+		$c = ['checked' => 0, 'email' => 0, 'phone' => 0, 'mobile' => 0,
+			'skippedOrg' => 0, 'skippedUser' => 0];
+		foreach ($sapUsers->getIds() as $id) {
+			if (!is_null($limit) && $c['checked'] >= $limit) break;
+			$u = $sapUsers->getItem($id);
+
+			if (($u['Uvolen'] ?? '') === 'Уволен') continue;
+			if (is_null($this->orgIdFor($sapOrg, $u['Orgeh'] ?? ''))) { $c['skippedOrg']++; continue; }
+			$pernr = (string)$u['Pernr'];
+			$arms = $empMap[$pernr] ?? null;
+			if (is_null($arms)) { $c['skippedUser']++; continue; }
+			$c['checked']++;
+
+			$email = trim((string)($arms['Email'] ?? ''));
+			if (strlen($email) && strcasecmp($email, trim((string)($u['Email'] ?? ''))) !== 0) {
+				echo "  контакты $pernr: email SAP '" . trim((string)($u['Email'] ?? '')) . "' -> '$email'\n";
+				$pusher($pernr, '0010', $email);
+				$c['email']++;
+			}
+
+			$phone = trim((string)($arms['Phone'] ?? ''));
+			if ($phone !== trim((string)($u['ArbPhone'] ?? ''))) {
+				echo "  контакты $pernr: раб. тел SAP '" . trim((string)($u['ArbPhone'] ?? '')) . "' -> '$phone'\n";
+				$pusher($pernr, '0020', $phone);
+				$c['phone']++;
+			}
+
+			$mobile = trim((string)($arms['Mobile'] ?? ''));
+			if ($mobile !== trim((string)($u['MobPhone'] ?? ''))) {
+				echo "  контакты $pernr: моб. тел SAP '" . trim((string)($u['MobPhone'] ?? '')) . "' -> '$mobile'\n";
+				$pusher($pernr, 'CELL', $mobile);
+				$c['mobile']++;
+			}
+		}
+		return $c;
+	}
+
 	/* Нормализация ФИО для сопоставления: регистр, ё->е, лишние пробелы. */
 	public static function normName($name): string {
 		$n = mb_strtolower(trim((string)$name));

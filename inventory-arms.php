@@ -88,6 +88,25 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']} (из них усыновлено ручных {$ru['adopted']}), " .
 		"без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
 
+	//обратная синхронизация контактов ARMS -> SAP: email и телефоны ведутся в AD и
+	//инвентаризации, SAP получает их отсюда. Только для источника SAP (у 1С своих
+	//полей контактов в выгрузке нет, сверять не с чем) и только если настроен скрипт
+	if (isset($sapPushUserData) && strlen($sapPushUserData) && $dataSrc['usr']['src'] === 'sap') {
+		echo "Pushing contacts to SAP...\n";
+		$pusher = function ($pernr, $type, $value) use ($sapPushUserData, $writer) {
+			if ($writer->dryRun) {
+				echo "  [DRY] push $pernr $type '$value'\n";
+				return;
+			}
+			system($sapPushUserData . ' ' . escapeshellarg($pernr) . ' '
+				. escapeshellarg($type) . ' ' . escapeshellarg($value));
+		};
+		$rc = $ingest->pushContacts($sapUsers, $sapOrg, $pusher);
+		echo "  contacts: сверено {$rc['checked']}, отправлено: email {$rc['email']}, " .
+			"раб. тел {$rc['phone']}, моб. тел {$rc['mobile']}; " .
+			"вне юрлиц {$rc['skippedOrg']}, нет в ARMS {$rc['skippedUser']}\n";
+	}
+
 	if (!$withPhotos) {
 		echo "Photos: пропущено (синхронизация фото — запуск с ключом photos)\n";
 	} else {
