@@ -213,12 +213,16 @@ foreach ($userIds as $bxID) {
 	if ($withPhotos) {
 		$bxStamp = $bxUsers->getItemField($bxID, 'UF_SAP_PHOTO_SYNC');
 		$portrait = $armsUsers->getPortrait($armsID);
+		//отметки недостаточно — фото должно ещё и существовать: отметку мог
+		//оставить легаси-механизм, а фото потом удалили из портала
+		$hasPhoto = strlen($bxUsers->getItemField($bxID, 'PERSONAL_PHOTO')) > 0;
 		if (is_null($portrait)) {
 			$photoStatus = 'ARMS missing';
-		} elseif ($portrait['date'] == $bxStamp) {
+		} elseif ($portrait['date'] == $bxStamp && $hasPhoto) {
 			$photoStatus = 'OK';
 		} elseif (!empty($dryRun)) {
-			echo "[DRY-RUN] пользователь #$bxID: обновил бы фото (скан #".$portrait['id'].", ".$portrait['date'].", в портале '".$bxStamp."')\n";
+			echo "[DRY-RUN] пользователь #$bxID: обновил бы фото (скан #".$portrait['id'].", ".$portrait['date'].
+				", в портале '".$bxStamp."'".($hasPhoto ? "" : ", фото в портале нет").")\n";
 			$photoStatus = 'would update';
 		} else {
 			$blob = $armsUsers->downloadScan($portrait['id']);
