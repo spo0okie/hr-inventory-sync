@@ -18,6 +18,16 @@ ini_set('display_errors', 'stderr');
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 echo date('c') . " Script started\n";
 
+//флажок ошибок для мониторинга (zabbix): в файл $syncErrorsFile пишется число
+//ошибок прогона (0 — всё хорошо). Мониторинг сверяет содержимое и давность
+//записи; при срабатывании предохранителей (die) файл не обновляется вовсе —
+//это ловится проверкой давности
+function reportSyncErrors($count) {
+	global $syncErrorsFile;
+	if (isset($syncErrorsFile) && strlen($syncErrorsFile))
+		file_put_contents($syncErrorsFile, $count);
+}
+
 require_once "config.php";
 require_once "libs/OrgStruct.php";
 require_once "libs/Arms/CArmsIngest.php";
@@ -64,8 +74,11 @@ try {
 	$client->whoami();
 } catch (RuntimeException $e) {
 	fwrite(STDERR, "ОШИБКА: ARMS API недоступен: " . $e->getMessage() . "\n");
+	reportSyncErrors(1);
 	exit(1);
 }
+
+$syncErrors = 0;
 
 try {
 
@@ -123,6 +136,7 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 		$rp = $ingest->ingestPhotos($sapUsers, $sapOrg, $photoFetcher);
 		echo "  photos: актуально {$rp['ok']}, обновлено {$rp['updated']}, ошибок {$rp['failed']}; " .
 			"без фото {$rp['noPhoto']}, вне юрлиц {$rp['skippedOrg']}, нет в ARMS {$rp['skippedUser']}\n";
+		$syncErrors += $rp['failed'];
 	}
 }
 
@@ -148,12 +162,15 @@ if ($absenceFiles) {
 		"удалено исчезнувших {$ra['removed']}, ошибок {$ra['failed']}, пропущено: без сотрудника в ARMS " .
 		"{$ra['skippedUser']}, с неизвестным типом {$ra['skippedType']}; " .
 		"запланированных отпусков {$ra['planned']}\n";
+	$syncErrors += $ra['failed'];
 }
 
 } catch (RuntimeException $e) {
 	//ошибки ARMS API (RBAC/валидация/сеть) — с телом ответа, см. CArmsRestClient::apiError
 	fwrite(STDERR, "ОШИБКА: " . $e->getMessage() . "\n");
+	reportSyncErrors($syncErrors + 1);
 	exit(1);
 }
 
+reportSyncErrors($syncErrors);
 echo date('c') . " Script complete\n";

@@ -6,7 +6,8 @@
  * Какие переменные нужны какому скрипту:
  *   inventory-arms.php  — $arms_api, $inventoryOrgs, $inventory_import, $dryRun,
  *                         $sapCache*, $sapAbsence* (отсутствия), $sapPhotoCache (режим photos),
- *                         $sapPushUserData (обратная синхронизация контактов в SAP)
+ *                         $sapPushUserData (обратная синхронизация контактов в SAP),
+ *                         $syncErrorsFile (флажок ошибок для zabbix)
  *   portal.php          — $arms_api, $dataSrc_arms, $dryRun, $bitrix_root, $grpList*, $managersTitles
  *   absenceSubscr.php   — $bitrix_root
  *   bDayReminder.php    — $bitrix_root, $bdayRemindMail
@@ -51,6 +52,14 @@ $inventory_import = [
 		],
 	],
 ];
+
+// ===== мониторинг =====
+
+//флажок ошибок для zabbix: inventory-arms.php в конце прогона пишет сюда число
+//ошибок (0 — всё хорошо). Мониторинг сверяет содержимое (должен быть 0) и
+//давность записи (файл не старше периода запусков: фатал и предохранители
+//файл не обновляют). Закомментируйте, чтобы отключить.
+$syncErrorsFile = '/var/log/inventory.sap.sync.err';
 
 // ===== режим dry-run =====
 
