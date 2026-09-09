@@ -259,7 +259,7 @@ class COrgStructureStorage {
 		//перебираем все узлы
 		foreach ($this->data as $id => $u) {
 			//перебираем аттрибуты
-			foreach ($attrs as $attr) {
+			foreach ($attrs as $attr => $modes) {
 				//смотрим значение аттрибута
 				$value = (string)(isset($u[$attr]) ? $u[$attr] : '');
 				$value = static::normalizeValue($value);
@@ -300,7 +300,7 @@ class COrgStructureStorage {
 		//если значение было массивом, то станет строкой перечислением
 		if (is_array($value)) $value=implode(',',$value);
 		//также убираем HTML сущности
-		$value=html_entity_decode((string)$value);
+		return html_entity_decode((string)$value);
 	}
 
 	/**
@@ -356,7 +356,7 @@ class COrgStructureStorage {
 		//приводим к строковому не HTML виду
 		$compare = static::normalizeValue($compare);
 
-		if (!$case) { //если отключена чувствительность к регистру, то приводим все к нижнему
+		if (!$case) { //если включена чувствительность к регистру отключена (регистронезависимый поиск)
 			$value=static::uncaseString($value);
 			$compare=static::uncaseString($compare);
 		}
@@ -411,41 +411,49 @@ class COrgStructureStorage {
 	 */
 	public function findIdsBy($filter,$and=true,$case=false,$soft=false){
 		$res=[];
-		$data=$and?$this->data //если у нас фильтр AND -> поиск сужает набор и мы начинаем со всех пользователей
-			:[];	//если у нас фильтр OR -> поиск расширяет набор и мы начинаем с пустого
 		$hardeness=static::hardenesMode($case,$soft);
+		$ids=array_keys($this->data);	//все ID элементов
+		$data=$and?$ids:	//AND: начинаем с всех ID
+			[];	//OR: начинаем с пустого множества
 		$indexed=false;	//признак того, что $data отфильтрована индексами
 
 		//перебираем фильтр на предмет наличия в нем проиндексированных атрибутов
 		foreach ($filter as $attr=>$value) {
-			if (isset($this->indexes[$attr][$hardeness])) {		//у нас есть индекс по этому атрибуту
-				$indexed=true;
-				$value=static::normalizeValue($value);			//нормализуем значение
-				if ($case) $value=static::uncaseString($value);	//приводим регистр (если нужно)
-				if ($soft) $value=static::softString($value);	//приводим мягкость (если нужно)
-				$filtered=$this->indexes[$attr][$hardeness][$value];
+			//нормализуем значение и приводим регистр/мягкость ПЕРЕД проверкой наличия в индексе
+			$value=static::normalizeValue($value);
+			if ($case) $value=static::uncaseString($value);
+			if ($soft) $value=static::softString($value);
+			//теперь проверяем наличие индекса
+			if (isset($this->indexes[$attr][$hardeness])) {
+				$filtered=isset($this->indexes[$attr][$hardeness][$value])
+					?$this->indexes[$attr][$hardeness][$value]
+					:[];
 
-				if (empty($filtered)&&$and) return [];			//shortcut: если мы работаем через AND и на этом слое фильтра пустой набор,
-																//то остальные правила не имеют значения, AND может только сужать выборку
+				//пустой результат в индексе: для AND с пустым значением это НЕ значит "нет совпадений",
+				//т.к. buildIndexes не индексирует пустые значения. Убираем из фильтра чтобы fallback отработал
+				if (empty($filtered) && $value !== '') {
+					if ($and) return [];	//для AND с непустым значением и пустым индексом — гарантированно пусто
+				} else {
+					$indexed=$indexed || !empty($filtered);
+					//расширяем или сужаем набор данных (работаем с ID!)
+					$data=$and?										//мы получили отфильтрованный набор ID по правилу AND
+						array_values(array_intersect($data,$filtered))		//пересечение множеств ID
+						:											//а если у нас OR
+						array_values(array_unique(array_merge($data,$filtered)));	//объединение множеств ID с уникальностью
 
-				//расширяем или сужаем набор данных
-				$data=$and?										//мы получили отфильтрованный набор по правилу и если у нас AND
-					array_intersect($data,$filtered)			//то нам нужно пересечение множеств (текущий слой с существующим фильтром)
-					:											//а если у нас OR
-					array_merge($data,$filtered);				//то нам нужно объединение множеств
-
-				//убираем правило фильтра по которому уже обработали выборку
-				unset($filter[$attr]);
+					//убираем правило фильтра по которому уже обработали выборку
+					unset($filter[$attr]);
+				}
 			}
 		}
 
 		//если мы уже выбрали данные индексами и больше правил в фильтре нет
-		if ($indexed&&empty($filter)) return $data;	//то отфильтрованный набор и есть искомое
+		if ($indexed&&empty($filter)) return $data;	//то отфильтрованный набор ID и есть искомое
 
-		if (!$indexed) $data=$this->data;			//если индексы не работали, то искать будем по всем пользователям
+		if (!$indexed) $data=$ids;			//если индексы не работали, то искать будем по всем ID
 
 		//перебираем все элементы
-		foreach ($data as $id=>$item)
+		foreach ($data as $id)
 			if ($this->filterItem($id, $filter, $and, $case, $soft))
 				$res[]= $id;
 		return $res;
