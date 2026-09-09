@@ -2,16 +2,16 @@
 /*
  * Класс хранилище оргструктуры
  * На самом деле абстрактный класс не используется непосредственно
- * вместо этого из него наследуются и кастомизируются 5 хранилищ 
+ * вместо этого из него наследуются и кастомизируются 5 хранилищ
  * - оргструктуры в битриксе и САП
  * - пользователей в битриксе и САП
  * - групп пользователей в битриксе
- * 
+ *
  *	В битриксе значит оргструктура устроена таким образом:
  *	Внутри каждого объекта "Информационный блок" имеются элементы и секции
  *	оргстуктура как раз строится из секций внутри информационного блока "подразделения"
  *	элементы там не используются
- *	
+ *
  * Элемент пользователя в САП грузится вот из такого итема:
 <item>
     <Pernr>00000869</Pernr> - Табельный номер
@@ -59,13 +59,13 @@
 </item>
  *
  * v1.2 Добавлена корневая процедура сравнения COrgStructureStorage::fieldCompareInt для поиска по
- *		целочисленным значениям. Удобно при поиске по табельному номеру, который сап отдает со 
+ *		целочисленным значениям. Удобно при поиске по табельному номеру, который сап отдает со
  *		впередиидущими нулями.
  * v1.1 Исправления по поиску, все поисковые фукнции завязаны на корневую функцию сравнения
  * 		COrgStructureStorage::fieldCompare, практически во все функции поиска и фильтрации добавлены
  * 		параметры case и soft которые отключают проверку регистра или включают равенство букв е и ё
  * v1.0 Initial release
- * 
+ *
  */
 
 
@@ -84,19 +84,21 @@ class COrgStructureStorage {
 	 */
 	public $data = null;
 	public $readOnly = false;
-	
+
+	private $indexes=[];
+
 	/**
 	 * @return array массив ключей загруженных элементов
 	 */
 	public function getIds(){return array_keys($this->data);}
-	
+
 	/**
 	 * Проверяет наличие элемента с ID
 	 * @param string $id ключ для проверки
 	 * @return bool признак наличия объекта с таким ключем
 	 */
 	public function exist($id){return isset($this->data[$id]);}
-	
+
 	/**
 	 * Конвертирует объектно хранимые структуры элементов в массиво-хранимые
 	 * @param object $obj
@@ -119,10 +121,10 @@ class COrgStructureStorage {
 		$items = [];
 		foreach ($objList as $item) {
 			$arItem=COrgStructureStorage::itemFromObject($item);
-			if (is_null($id)) { 
+			if (is_null($id)) {
 				//если ключей не предусмотрено то просто по порядочку заполняем
 				$items[]=$arItem;
-			} elseif (is_array($id)) { 
+			} elseif (is_array($id)) {
 				//если передан массив, значит ключ составной
 				$key=[];
 				foreach ($id as $subKey) { //массив из ключевых из полей элемента
@@ -137,7 +139,7 @@ class COrgStructureStorage {
 		return $items;
 	}
 
-	
+
 	/**
 	 * Грузит данные из XML файла
 	 * @param string $filename файл для загрузки
@@ -228,7 +230,110 @@ class COrgStructureStorage {
 	public function initItem($item,$key) {
 		if (strlen($key)!=0) $this->data[$item[$key]]=$item;
 	}
-	
+
+	/**
+	 * Перестраивает индексы сопоставления по текущему $data.
+	 * можно передать матрицу типов сравнения через булевые параметры для каждого атрибута
+	 * @param array $attrs набор полей для построения индекса в формате [
+	 * 	'attr' => [
+	 *		'hard'=>true,		//индексировать строгое написание
+	 *		'soft'=>false,		//индексировать нестрогое написание (е==ё)
+	 *		'case'=>true,		//индексировать регистронезависимое написание (А==а)
+	 *		'softcase'=>false,	//индексировать регистронезависимое написание (Ё==е)
+	 * 	],
+	 * ]
+	 */
+	public function buildIndexes($attrs) {
+		if (empty($attrs)) return;	//при пустом наборе индексов выходим
+
+		//подготавливаем массивы индексов
+		foreach ($attrs as $attr=>$modes) {
+			$this->indexes[$attr]=[];
+			//создаем хранилища индексов только нужного типа
+			if (isset($modes['hard']) ? $modes['hard'] : true) $this->indexes[$attr]['hard']=[];
+			if (isset($modes['case']) ? $modes['case'] : true) $this->indexes[$attr]['case']=[];
+			if (isset($modes['soft']) ? $modes['soft'] : false) $this->indexes[$attr]['soft']=[];
+			if (isset($modes['softcase']) ? $modes['softcase'] : false) $this->indexes[$attr]['softcase']=[];
+		}
+
+		//перебираем все узлы
+		foreach ($this->data as $id => $u) {
+			//перебираем аттрибуты
+			foreach ($attrs as $attr) {
+				//смотрим значение аттрибута
+				$value = (string)(isset($u[$attr]) ? $u[$attr] : '');
+				$value = static::normalizeValue($value);
+
+				//для непустого аттрибута добавляем ID в индекс по значению
+				if (strlen($value)) {
+					/* заполняем  только хранилища созданного типа */
+
+					//строгое соответствие
+					if (isset($this->indexes[$attr]['hard']))
+						$this->indexes[$attr]['hard'][$value][] = $id;
+
+					//регистронезависимое соответствие
+					if (isset($this->indexes[$attr]['case']))
+						$this->indexes[$attr]['case'][static::uncaseString($value)][] = $id;
+
+					//мягкое соответствие
+					if (isset($this->indexes[$attr]['soft']))
+						$this->indexes[$attr]['soft'][static::softString($value)][] = $id;
+
+					//мягкое регистронезависимое соответствие
+					if (isset($this->indexes[$attr]['softcase']))
+						$this->indexes[$attr]['softcase'][static::uncaseString(static::softString($value))][] = $id;
+				}
+			}
+		}
+	}
+
+
+	/**
+	 * Приведение значения к строке для сравнения
+	 * Уже в коде была нормализация значения при сравнении аттрибутов
+	 * решил при построении индексов вынести все в одно место чтобы не запутаться
+	 * @param mixed $value значение
+	 * @return string
+	 */
+	public static function normalizeValue($value) {
+		//если значение было массивом, то станет строкой перечислением
+		if (is_array($value)) $value=implode(',',$value);
+		//также убираем HTML сущности
+		$value=html_entity_decode((string)$value);
+	}
+
+	/**
+	 * Убирает регистр из строки для поиска
+	 * @param string $input
+	 * @return string
+	 */
+	public static function uncaseString($input) {
+		return mb_strtolower($input);
+	}
+
+	/**
+	 * Смягчает строку для поиска:подменяет все Ё->Е ё->е
+	 * @param string $input
+	 * @return string
+	 */
+	public static function softString($input) {
+		$hard=['Ё','ё']; //строгое написание букв
+		$soft=['Е','е']; //нестрогое
+		return str_replace($hard,$soft,$input);
+	}
+
+	/**
+	 * Как у нас в индексах называется режим сравнения по регистру и мягкости
+	 */
+	public static function hardenesMode($case,$soft) {
+		if ($case && $soft) return 'softcase';
+		if ($case) return 'case';
+		if ($soft) return 'soft';
+		return 'hard';
+	}
+
+
 	/**
 	 * Сравнивает строковое поле элемента с переданным значением
  	 * @param array $item указатель на проверяемый элемент
@@ -239,24 +344,26 @@ class COrgStructureStorage {
 	 * @return bool успех сравнения
 	 */
 	public static function fieldCompare(&$item,$field,$value,$case=false,$soft=false){
-		if (is_array($value)) $value=implode(',',$value);
-		$value=html_entity_decode((string)$value);
-		if (!isset($item[$field])) 
-			return strlen($value)==0;
+		//приводим к строковому не HTML виду
+		$value = static::normalizeValue($value);
+
+		if (!isset($item[$field]))		//если такого атрибута у элемента нет
+			return strlen($value)==0;	//то совпадение толькои если мы и искали "ничего"
 		else {
-			if (is_array($item[$field])) $compare=html_entity_decode(implode(',',$item[$field]));
-			else $compare=html_entity_decode((string)$item[$field]);
+			$compare=$item[$field];
 		}
+
+		//приводим к строковому не HTML виду
+		$compare = static::normalizeValue($compare);
+
 		if (!$case) { //если отключена чувствительность к регистру, то приводим все к нижнему
-			$value=mb_strtolower($value);
-			$compare=mb_strtolower($compare);
-		} 
-		
+			$value=static::uncaseString($value);
+			$compare=static::uncaseString($compare);
+		}
+
 		if ($soft){ //если отключено строгое написание, то подменяем буквы
-			$hard=['Ё','ё']; //строгое написание букв
-			$soft=['Е','е']; //нестрогое
-			$value=str_replace($hard,$soft,$value);
-			$compare=str_replace($hard,$soft,$compare);
+			$value=static::softString($value);
+			$compare=static::softString($compare);
 		}
 
 		return (strcmp($value,$compare)===0);
@@ -273,8 +380,8 @@ class COrgStructureStorage {
 		if (!isset($item[$field])) return false;
 		return ((int)$value===(int)$item[$field]);
 	}
-	
-	
+
+
 	/**
 	 * Проверяет попадает ли итем в фильтр
 	 * @param string $id идентификатор проверяемого итема
@@ -288,12 +395,12 @@ class COrgStructureStorage {
 		foreach ($filter as $field=>$value) {
 			$test=COrgStructureStorage::fieldCompare($this->data[$id], $field, $value, $case, $soft);
 			if ($and !== $test) return $test;
-			//true (строгое сравнение) 		!== false (неудача) возвращает false (неудача сравнения) 
-			//false (нестрогое сравнение)	!== true (удача) 	возвращает true (удача сравнения) 
+			//true (строгое сравнение) 		!== false (неудача) возвращает false (неудача сравнения)
+			//false (нестрогое сравнение)	!== true (удача) 	возвращает true (удача сравнения)
 		}
 		return $and; //при строгом сравнении мы добираемся сюда при отсутствии неудач выше, а при нестрогом при отсутствии удач
 	}
-	
+
 	/**
 	 * Ищет элементы по полю
 	 * @param array $filter фильтр типа поле=>значение, по которому ищем совпадения
@@ -304,13 +411,46 @@ class COrgStructureStorage {
 	 */
 	public function findIdsBy($filter,$and=true,$case=false,$soft=false){
 		$res=[];
+		$data=$and?$this->data //если у нас фильтр AND -> поиск сужает набор и мы начинаем со всех пользователей
+			:[];	//если у нас фильтр OR -> поиск расширяет набор и мы начинаем с пустого
+		$hardeness=static::hardenesMode($case,$soft);
+		$indexed=false;	//признак того, что $data отфильтрована индексами
+
+		//перебираем фильтр на предмет наличия в нем проиндексированных атрибутов
+		foreach ($filter as $attr=>$value) {
+			if (isset($this->indexes[$attr][$hardeness])) {		//у нас есть индекс по этому атрибуту
+				$indexed=true;
+				$value=static::normalizeValue($value);			//нормализуем значение
+				if ($case) $value=static::uncaseString($value);	//приводим регистр (если нужно)
+				if ($soft) $value=static::softString($value);	//приводим мягкость (если нужно)
+				$filtered=$this->indexes[$attr][$hardeness][$value];
+
+				if (empty($filtered)&&$and) return [];			//shortcut: если мы работаем через AND и на этом слое фильтра пустой набор,
+																//то остальные правила не имеют значения, AND может только сужать выборку
+
+				//расширяем или сужаем набор данных
+				$data=$and?										//мы получили отфильтрованный набор по правилу и если у нас AND
+					array_intersect($data,$filtered)			//то нам нужно пересечение множеств (текущий слой с существующим фильтром)
+					:											//а если у нас OR
+					array_merge($data,$filtered);				//то нам нужно объединение множеств
+
+				//убираем правило фильтра по которому уже обработали выборку
+				unset($filter[$attr]);
+			}
+		}
+
+		//если мы уже выбрали данные индексами и больше правил в фильтре нет
+		if ($indexed&&empty($filter)) return $data;	//то отфильтрованный набор и есть искомое
+
+		if (!$indexed) $data=$this->data;			//если индексы не работали, то искать будем по всем пользователям
+
 		//перебираем все элементы
-		foreach ($this->data as $id=>$item)
+		foreach ($data as $id=>$item)
 			if ($this->filterItem($id, $filter, $and, $case, $soft))
 				$res[]= $id;
 		return $res;
 	}
-	
+
 	/**
 	 * Ищет элемент по полю
 	 * @param string $field имя поля по которому делается поиск
@@ -322,7 +462,7 @@ class COrgStructureStorage {
 	public function findIdBy($field,$value,$case=false,$soft=false){
 		//если нам забыли передать имя поля или искомое значение - ничего не будем искать
 		if (is_null($value)||is_null($field)) return null;
-		
+
 		//перебираем все элементы
 		foreach ($this->data as $id=>$item){
 			//если такое поле есть и значения совпали, то это то что мы ищем
@@ -340,7 +480,7 @@ class COrgStructureStorage {
 	public function findIdByInt($field,$value){
 		//если нам забыли передать имя поля или искомое значение - ничего не будем искать
 		if (is_null($value)||is_null($field)) return null;
-		
+
 		//перебираем все элементы
 		foreach ($this->data as $id=>$item){
 			//если такое поле есть и значения совпали, то это то что мы ищем
@@ -362,7 +502,7 @@ class COrgStructureStorage {
 		if (isset($this->data[$id])&&isset($this->data[$id][$field])) return $this->data[$id][$field];
 		return $default;
 	}
-	
+
 	/*
 	 * возвращает значение поля $returnField объекта, у которого в $getField содержится $needle
 	 * @param string $getField поле для поиска
@@ -390,7 +530,7 @@ class COrgStructureStorage {
 	 */
 	public function ckItem($id,$params){
 		foreach ($params as $name=>$value)
-			if (	
+			if (
 					(!COrgStructureStorage::fieldCompare($this->data[$id],$name,$value,true))&& //проверяем и оригинальные значения
 					(!COrgStructureStorage::fieldCompare($this->data[$id],$name,$value,true))//и с HTML entities
 				) {
@@ -402,7 +542,7 @@ class COrgStructureStorage {
 				}
 		return true;
 	}
-	
+
 	/**
 	 * Возвращает элемент со всеми полями
 	 */
@@ -485,4 +625,3 @@ class COrgStructureStorage {
 
 
 ?>
-   
