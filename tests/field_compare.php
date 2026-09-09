@@ -7,8 +7,8 @@ function test_field_compare() {
     echo "\n--- Тесты fieldCompare ---\n";
     $item = ['Name' => 'Иванов', 'Age' => 30, 'Roles' => ['admin', 'user']];
     assertEq(true,  COrgStructureStorage::fieldCompare($item, 'Name', 'Иванов', false, false), 'fieldCompare: точное совпадение');
-    assertEq(true,  COrgStructureStorage::fieldCompare($item, 'Name', 'ИВАНОВ', true, false),  'fieldCompare: case-insensitive');
-    assertEq(false, COrgStructureStorage::fieldCompare($item, 'Name', 'ИВАНОВ', false, false), 'fieldCompare: case-sensitive mismatch');
+    assertEq(true,  COrgStructureStorage::fieldCompare($item, 'Name', 'ИВАНОВ', false, false), 'fieldCompare: case=false игнорирует регистр');
+    assertEq(false, COrgStructureStorage::fieldCompare($item, 'Name', 'ИВАНОВ', true, false),  'fieldCompare: case=true учитывает регистр');
     $itemY = ['Name' => 'Ёлкин'];
     assertEq(true,  COrgStructureStorage::fieldCompare($itemY, 'Name', 'Елкин', false, true), 'fieldCompare: soft (Ё==Е)');
     assertEq(true,  COrgStructureStorage::fieldCompare($item, 'Missing', '', false, false),  'fieldCompare: missing field + empty value');

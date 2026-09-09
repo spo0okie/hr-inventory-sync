@@ -12,8 +12,8 @@ function test_normalization() {
     assertEq('иванов', COrgStructureStorage::uncaseString('ИваНов'), 'uncaseString смешанный регистр');
     assertEq('Елкин', COrgStructureStorage::softString('Ёлкин'), 'softString Ё → Е');
     assertEq('елкин', COrgStructureStorage::softString('ёлкин'), 'softString ё → е');
-    assertEq('hard',     COrgStructureStorage::hardenesMode(false, false), 'hardenesMode(false,false)=hard');
-    assertEq('case',     COrgStructureStorage::hardenesMode(true,  false), 'hardenesMode(true,false)=case');
-    assertEq('soft',     COrgStructureStorage::hardenesMode(false, true),  'hardenesMode(false,true)=soft');
-    assertEq('softcase', COrgStructureStorage::hardenesMode(true,  true),  'hardenesMode(true,true)=softcase');
+    assertEq('hard',     COrgStructureStorage::hardenesMode(true,  false), 'hardenesMode(true,false)=hard');
+    assertEq('case',     COrgStructureStorage::hardenesMode(false, false), 'hardenesMode(false,false)=case');
+    assertEq('soft',     COrgStructureStorage::hardenesMode(true,  true),  'hardenesMode(true,true)=soft');
+    assertEq('softcase', COrgStructureStorage::hardenesMode(false, true),  'hardenesMode(false,true)=softcase');
 }

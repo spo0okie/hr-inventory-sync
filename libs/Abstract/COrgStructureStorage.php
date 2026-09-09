@@ -236,12 +236,17 @@ class COrgStructureStorage {
 	 * можно передать матрицу типов сравнения через булевые параметры для каждого атрибута
 	 * @param array $attrs набор полей для построения индекса в формате [
 	 * 	'attr' => [
-	 *		'hard'=>true,		//индексировать строгое написание
-	 *		'soft'=>false,		//индексировать нестрогое написание (е==ё)
-	 *		'case'=>true,		//индексировать регистронезависимое написание (А==а)
-	 *		'softcase'=>false,	//индексировать регистронезависимое написание (Ё==е)
+	 *		'hard'=>true,		//регистр учитывается, Е и Ё различаются
+	 *		'case'=>true,		//регистр игнорируется, Е и Ё различаются
+	 *		'soft'=>false,		//регистр учитывается, Е и Ё считаются равными
+	 *		'softcase'=>false,	//регистр игнорируется, Е и Ё считаются равными
 	 * 	],
 	 * ]
+	 *
+	 * Названия индексов описывают способ хранения ключа. Во всех публичных
+	 * методах поиска флаг $case имеет обратное, исторически сложившееся имя:
+	 * true - учитывать регистр, false - игнорировать регистр. Флаг $soft:
+	 * true - считать Е и Ё равными, false - различать их.
 	 */
 	public function buildIndexes($attrs) {
 		if (empty($attrs)) return;	//при пустом наборе индексов выходим
@@ -261,7 +266,7 @@ class COrgStructureStorage {
 			//перебираем аттрибуты
 			foreach ($attrs as $attr => $modes) {
 				//смотрим значение аттрибута
-				$value = (string)(isset($u[$attr]) ? $u[$attr] : '');
+				$value = isset($u[$attr]) ? $u[$attr] : '';
 				$value = static::normalizeValue($value);
 
 				//для непустого аттрибута добавляем ID в индекс по значению
@@ -324,13 +329,35 @@ class COrgStructureStorage {
 	}
 
 	/**
-	 * Как у нас в индексах называется режим сравнения по регистру и мягкости
+	 * Возвращает имя индекса для флагов сравнения.
+	 *
+	 * ВАЖНО: сигнатура и значение флагов сохранены для обратной совместимости
+	 * со старыми вызовами fieldCompare(), filterItem(), findIdsBy() и findIdBy():
+	 * $case=true - регистр учитывается; $case=false - регистр игнорируется.
+	 * $soft=true - Е и Ё считаются равными; $soft=false - различаются.
+	 *
+	 * Таблица соответствий:
+	 *   true,  false => hard     (регистр учитывается, Е != Ё)
+	 *   false, false => case     (регистр игнорируется, Е != Ё)
+	 *   true,  true  => soft     (регистр учитывается, Е == Ё)
+	 *   false, true  => softcase (регистр игнорируется, Е == Ё)
 	 */
 	public static function hardenesMode($case,$soft) {
-		if ($case && $soft) return 'softcase';
-		if ($case) return 'case';
+		if (!$case && $soft) return 'softcase';
+		if (!$case) return 'case';
 		if ($soft) return 'soft';
 		return 'hard';
+	}
+
+	/**
+	 * Нормализует значение точно так же, как ключ выбранного индекса.
+	 * Порядок преобразований одинаков для линейного поиска и поиска по индексу.
+	 */
+	protected static function normalizeComparisonValue($value,$case=false,$soft=false) {
+		$value=static::normalizeValue($value);
+		if (!$case) $value=static::uncaseString($value);
+		if ($soft) $value=static::softString($value);
+		return $value;
 	}
 
 
@@ -339,32 +366,19 @@ class COrgStructureStorage {
  	 * @param array $item указатель на проверяемый элемент
 	 * @param string $field проверяемое поле
 	 * @param string $value проверяемое значение
-	 * @param bool $case чувствительность к регистру при проверке
-	 * @param bool $soft флаг мягкого сравнения, если установлен, то е и ё считаются как один символ
+	 * @param bool $case true - учитывать регистр; false - игнорировать (значение по умолчанию)
+	 * @param bool $soft true - считать Е и Ё равными; false - различать (значение по умолчанию)
 	 * @return bool успех сравнения
 	 */
 	public static function fieldCompare(&$item,$field,$value,$case=false,$soft=false){
-		//приводим к строковому не HTML виду
-		$value = static::normalizeValue($value);
-
 		if (!isset($item[$field]))		//если такого атрибута у элемента нет
-			return strlen($value)==0;	//то совпадение толькои если мы и искали "ничего"
+			return strlen(static::normalizeValue($value))==0;	//то совпадение толькои если мы и искали "ничего"
 		else {
 			$compare=$item[$field];
 		}
 
-		//приводим к строковому не HTML виду
-		$compare = static::normalizeValue($compare);
-
-		if (!$case) { //если включена чувствительность к регистру отключена (регистронезависимый поиск)
-			$value=static::uncaseString($value);
-			$compare=static::uncaseString($compare);
-		}
-
-		if ($soft){ //если отключено строгое написание, то подменяем буквы
-			$value=static::softString($value);
-			$compare=static::softString($compare);
-		}
+		$value=static::normalizeComparisonValue($value,$case,$soft);
+		$compare=static::normalizeComparisonValue($compare,$case,$soft);
 
 		return (strcmp($value,$compare)===0);
 	}
@@ -387,8 +401,8 @@ class COrgStructureStorage {
 	 * @param string $id идентификатор проверяемого итема
 	 * @param array $filter набор поле=>значение с которыми будут сравниваться поля элемента
 	 * @param bool $and если установлено в true то режим проверки AND (необходимо совпадение всех полей) иначе OR (необходимо хотябы одно совпадение)
-	 * @param bool $case чувствительность к регистру при поиске
-	 * @param bool $soft флаг мягкого сравнения, если установлен, то е и ё считаются как один символ
+	 * @param bool $case true - учитывать регистр; false - игнорировать (значение по умолчанию)
+	 * @param bool $soft true - считать Е и Ё равными; false - различать (значение по умолчанию)
 	 * @return bool успех сравнения
 	 */
 	public function filterItem($id,$filter,$and=true,$case=false,$soft=false) {
@@ -405,8 +419,8 @@ class COrgStructureStorage {
 	 * Ищет элементы по полю
 	 * @param array $filter фильтр типа поле=>значение, по которому ищем совпадения
 	 * @param bool $and если установлено в true то режим проверки AND (необходимо совпадение всех полей) иначе OR (необходимо хотябы одно совпадение)
-	 * @param bool $case чувствительность к регистру при поиске
-	 * @param bool $soft флаг мягкого сравнения, если установлен, то е и ё считаются как один символ
+	 * @param bool $case true - учитывать регистр; false - игнорировать (значение по умолчанию)
+	 * @param bool $soft true - считать Е и Ё равными; false - различать (значение по умолчанию)
 	 * @return array идентификаторов найденных элементов
 	 */
 	public function findIdsBy($filter,$and=true,$case=false,$soft=false){
@@ -419,20 +433,20 @@ class COrgStructureStorage {
 
 		//перебираем фильтр на предмет наличия в нем проиндексированных атрибутов
 		foreach ($filter as $attr=>$value) {
-			//нормализуем значение и приводим регистр/мягкость ПЕРЕД проверкой наличия в индексе
-			$value=static::normalizeValue($value);
-			if ($case) $value=static::uncaseString($value);
-			if ($soft) $value=static::softString($value);
+			//Ключ строится тем же преобразованием, что использует fieldCompare().
+			$value=static::normalizeComparisonValue($value,$case,$soft);
 			//теперь проверяем наличие индекса
 			if (isset($this->indexes[$attr][$hardeness])) {
 				$filtered=isset($this->indexes[$attr][$hardeness][$value])
 					?$this->indexes[$attr][$hardeness][$value]
 					:[];
 
-				//пустой результат в индексе: для AND с пустым значением это НЕ значит "нет совпадений",
-				//т.к. buildIndexes не индексирует пустые значения. Убираем из фильтра чтобы fallback отработал
-				if (empty($filtered) && $value !== '') {
-					if ($and) return [];	//для AND с непустым значением и пустым индексом — гарантированно пусто
+				if (empty($filtered)) {
+					//Пустые значения не попадают в индекс. Оставляем это условие
+					//для fieldCompare(), иначе пустой фильтр вернёт все записи.
+					if ($value === '') continue;
+					if ($and) return [];	//для AND непустое значение точно не найдено
+					unset($filter[$attr]); //для OR это условие не добавляет ни одной записи
 				} else {
 					$indexed=$indexed || !empty($filtered);
 					//расширяем или сужаем набор данных (работаем с ID!)
@@ -447,24 +461,30 @@ class COrgStructureStorage {
 			}
 		}
 
-		//если мы уже выбрали данные индексами и больше правил в фильтре нет
-		if ($indexed&&empty($filter)) return $data;	//то отфильтрованный набор ID и есть искомое
+		if ($and) {
+			//Если все условия уже обработаны индексами, $data и есть результат.
+			if ($indexed&&empty($filter)) return $data;
+			if (!$indexed) $data=$ids;	//если индексы не работали, то искать будем по всем ID
 
-		if (!$indexed) $data=$ids;			//если индексы не работали, то искать будем по всем ID
+			foreach ($data as $id)
+				if ($this->filterItem($id, $filter, true, $case, $soft)) $res[]= $id;
+			return $res;
+		}
 
-		//перебираем все элементы
-		foreach ($data as $id)
-			if ($this->filterItem($id, $filter, $and, $case, $soft))
-				$res[]= $id;
-		return $res;
+		//В OR индекс даёт только часть результата. Оставшиеся условия надо проверять
+		//по всем данным и объединять с ней, иначе пропадут совпадения по неиндексированным полям.
+		if (empty($filter)) return $data;
+		foreach ($ids as $id)
+			if ($this->filterItem($id, $filter, false, $case, $soft)) $res[]= $id;
+		return array_values(array_unique(array_merge($data,$res)));
 	}
 
 	/**
 	 * Ищет элемент по полю
 	 * @param string $field имя поля по которому делается поиск
 	 * @param string $value значение указанного поля
-	 * @param bool $case чуствительность к регистру при поиске
-	 * @param bool $soft флаг мягкого сравнения, если установлен, то е и ё считаются как один символ
+	 * @param bool $case true - учитывать регистр; false - игнорировать (значение по умолчанию)
+	 * @param bool $soft true - считать Е и Ё равными; false - различать (значение по умолчанию)
 	 * @return string objid найденного элемента или null
 	 */
 	public function findIdBy($field,$value,$case=false,$soft=false){
