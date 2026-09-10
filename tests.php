@@ -7,12 +7,15 @@
  */
 
 require_once __DIR__ . '/libs/Abstract/COrgStructureStorage.php';
+require_once __DIR__ . '/libs/Arms/CArmsUserList.php';
 require_once __DIR__ . '/tests/helper.php';
 
 $blocks = [
     'normalization',
     'field_compare',
     'indexed_search',
+    'index_consistency',
+    'arms_user_indexes',
     'unindexed_search',
     'filter_item',
     'edge_cases',

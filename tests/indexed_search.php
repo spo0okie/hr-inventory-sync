@@ -8,9 +8,13 @@ function test_indexed_search() {
     $st = makeIndexedStorage();
 
     assertEq(['u1','u5'], $st->findIdsBy(['Pernr' => '00000001']), 'findIdsBy Pernr точное совпадение (hard), 2 записи');
+    assertEq('u1', $st->findIdBy('Pernr', '00000001'), 'findIdBy берёт первый ID из индексного результата');
     assertEq(['u1'], $st->findIdsBy(['Ename' => 'ИВАНОВ ИВАН ИВАНОВИЧ']), 'findIdsBy: case=false по умолчанию игнорирует регистр');
+    assertEq('u1', $st->findIdBy('Ename', 'ИВАНОВ ИВАН ИВАНОВИЧ'), 'findIdBy использует case-индекс');
     assertEq([], $st->findIdsBy(['Ename' => 'ИВАНОВ ИВАН ИВАНОВИЧ'], true, true, false), 'findIdsBy: case=true учитывает регистр');
+    assertEq(null, $st->findIdBy('Ename', 'ИВАНОВ ИВАН ИВАНОВИЧ', true, false), 'findIdBy: case=true учитывает регистр');
     assertEq(['u4'], $st->findIdsBy(['Ename' => 'Елкин Елкий Елкич'], true, true, true), 'findIdsBy: case=true, soft=true (Ё==Е)');
+    assertEq('u4', $st->findIdBy('Ename', 'Елкин Елкий Елкич', true, true), 'findIdBy использует soft-индекс');
     assertEq(['u4'], $st->findIdsBy(['Ename' => 'ёлкин ёлкий ёлкич'], true, false, true), 'findIdsBy: case=false, soft=true (Ё==Е + регистр)');
 
     $withoutIndexes = makeStorage();

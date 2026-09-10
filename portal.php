@@ -24,12 +24,12 @@
  */
 
 /**
- * @var $bitrix_root string корень установки Bitrix
- * @var $dataSrc_arms array дескриптор источника ARMS
- * @var $dryRun bool не писать в Bitrix
- * @var $grpListAll array группы, где должны быть все сотрудники
- * @var $managersTitles array ключевые слова должностей руководителей
- * @var $grpListManagers array группы руководителей
+ * @var string $bitrix_root  корень установки Bitrix
+ * @var array $dataSrc_arms дескриптор источника ARMS
+ * @var bool $dryRun не писать в Bitrix
+ * @var array $grpListAll группы, где должны быть все сотрудники
+ * @var array $managersTitles ключевые слова должностей руководителей
+ * @var array $grpListManagers группы руководителей
  */
 
 // Подключаем битрикс фреймворк
@@ -116,7 +116,7 @@ foreach ( $grpListManagers as $grp )
 	if (is_null ( $grpListManagers_id [] = $bxGrp->findIdBy ( 'NAME', $grp ) ))
 		die ( "Can't find group $grp" );
 
-
+//если мы делаем полный прогон (либо без аргументов, либо аргумент - добавить синхронизацию фото)
 if ($argc==1 || $argv[1]=='photos') {
 	echo "Checking structure\n";
 
@@ -166,11 +166,11 @@ echo "Checking users\n";
  * Пользователи, не найденные в ARMS, деактивируются (если были активны).
  */
 
-if ($argc>1 && $argv[1]!='photos') {
-	$userId=$bxUsers->findIdBy('LOGIN',$argv[1]);
+if ($argc>1 && $argv[1]!='photos') {							//если нам передан аргумент и это не photos
+	$userId=$bxUsers->findIdBy('LOGIN',$argv[1]);				//значит обрабатываем одного пользователя
 	if (!$userId) die('User '.$argv[1].' not found in Bitrix');
 	$userIds=[$userId];
-} else {
+} else {														//иначе грузим всех
 	$userIds=$bxUsers->getIds();
 }
 

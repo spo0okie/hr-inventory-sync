@@ -485,19 +485,19 @@ class COrgStructureStorage {
 	 * @param string $value значение указанного поля
 	 * @param bool $case true - учитывать регистр; false - игнорировать (значение по умолчанию)
 	 * @param bool $soft true - считать Е и Ё равными; false - различать (значение по умолчанию)
-	 * @return string objid найденного элемента или null
+	 * @return ?string objid найденного элемента или null
 	 */
 	public function findIdBy($field,$value,$case=false,$soft=false){
 		//если нам забыли передать имя поля или искомое значение - ничего не будем искать
 		if (is_null($value)||is_null($field)) return null;
 
-		//перебираем все элементы
-		foreach ($this->data as $id=>$item){
-			//если такое поле есть и значения совпали, то это то что мы ищем
-			if (COrgStructureStorage::fieldCompare($item,$field,$value,$case,$soft)) return $id;
-		}
-		//echo "Cannot find ID by $field = $value\n";
-		return null;
+		/*
+		 * findIdsBy() использует индекс при его наличии и fallback в остальных
+		 * случаях. Порядок ID в нём совпадает с порядком $data, поэтому первый
+		 * результат сохраняет поведение прежнего линейного поиска.
+		 */
+		$ids=$this->findIdsBy(array($field=>$value),true,$case,$soft);
+		return isset($ids[0]) ? $ids[0] : null;
 	}
 
 	/*
