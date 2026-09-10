@@ -77,14 +77,14 @@ require_once dirname(__FILE__)."/../Abstract/COrgStructureStorage.php";
 
 
 class CBxUserList extends COrgStructureStorage {
-	
+
 	/**
-	 * @var $sap CSapUserList
+	 * @var CSapUserList $sap
 	 */
 	private $sap=null;
-	
+
 	public function attachSap(&$sap){$this->sap=$sap;}
-	
+
 	/*
 	 * При создании загружает список пользователей
 	 */
@@ -97,7 +97,7 @@ class CBxUserList extends COrgStructureStorage {
 			echo count($this->data)." items loaded in Bitrix Usr storage \n";
 			//print_r($this->data);
 	}
-	
+
 	/*
 	 * Загружает один элемент из битрикса
 	 * релоад названо потомучто для загрузки по ID надо знать этот ID, что как бы намекает
@@ -111,7 +111,7 @@ class CBxUserList extends COrgStructureStorage {
 		} else
 			return false;
 	}
-	
+
 	/*
 	 * Возвращает массив идентификаторов групп в которые входит пользователь
 	 * @param string $id пользователя
@@ -139,14 +139,14 @@ class CBxUserList extends COrgStructureStorage {
 		//print_r($user_groups);
 		if (!is_array($groups)) $groups=[$groups]; //определимся, что мы работаем именно с массивом, хотябы из одного элемента
 		if (is_null($user)||!count($groups)) return true; //если список пустой или пользователя нет, то проверять нечего
-		
+
 		$user_groups= CBxUserList::getUserGroups($user);
 		//echo "go into loop...\n";
-		foreach ($groups as $grp) 
+		foreach ($groups as $grp)
 			if (!in_array($grp, $user_groups)) return false;
 		return true;
 	}
-	
+
 	/*
 	 * Добавление пользователя в группы(у)
 	 * @param string $user идентификатор пользователя
@@ -161,7 +161,7 @@ class CBxUserList extends COrgStructureStorage {
 		CUser::SetUserGroup($user, $arGroups);
 		return CBxUserList::checkUserGroups($user, $groups);
 	}
-	
+
 	/*
 	 * Проверка наличия и добавление если нужно пользователя в группы(у)
 	 * @param string $user идентификатор пользователя
@@ -170,7 +170,7 @@ class CBxUserList extends COrgStructureStorage {
 	public static function fixUserGroups($user,$groups){
 		return (CBxUserList::checkUserGroups($user, $groups))||(CBxUserList::addUserGroups($user, $groups));
 	}
-	
+
 	/*
 	 * Ищет дубликаты пользователя
 	 * @param string $id пользователя
@@ -183,23 +183,23 @@ class CBxUserList extends COrgStructureStorage {
 		$found=[];
 		foreach ($this->getIds() as $cmp)
 			if (($cmp!=$id)&&(
-					//если совпадает ФИО 
+					//если совпадает ФИО
 					(($this->getItemField($cmp,'NAME')==$name)&&($this->getItemField($cmp,'LAST_NAME')==$lname))||
 					//или логин
 					($this->getItemField($cmp,'LOGIN')==$login)
 					)) $found[]=$cmp;
 					return $found;
 	}
-	
-	
+
+
 	/**
 	 * Ищем объект в сапе по имени
 	 */
 	public function getSapID($id){
-		//если внутри пользователя записан его номер сотрудника и по нему он ищется - то его и вернем
-		if (strlen($employeeId=$this->getItemField($id,'XML_ID'))) {
+		//если внутри пользователя записан его табельник и по нему он ищется - то его и вернем
+		if (strlen($login=$this->getItemField($id,'LOGIN'))) {
 			try {
-				if (!is_null($sapID=$this->sap->getMainEmployment(['Pernr'=>$employeeId]))) return $sapID;
+				if (!is_null($sapID=$this->sap->findIdBy('Login',$login))) return $sapID;
 			} catch (Exception $e) {
 				//если таких двое то прикидываемся как будто ничего и не нашли
 				var_dump($e);
@@ -207,7 +207,18 @@ class CBxUserList extends COrgStructureStorage {
 			}
 		}
 
-		//если внутри пользователя записан его номер сотрудника и по нему он ищется - то его и вернем
+		//если внутри пользователя записан его табельник и по нему он ищется - то его и вернем
+		if (strlen($employeeId=$this->getItemField($id,'XML_ID'))) {
+			try {
+				if (!is_null($sapID=$this->sap->findIdBy('Pernr',$employeeId))) return $sapID;
+			} catch (Exception $e) {
+				//если таких двое то прикидываемся как будто ничего и не нашли
+				var_dump($e);
+				$sapID=null;
+			}
+		}
+
+		//если внутри пользователя записан его ИНН и по нему он ищется - то его и вернем
 		if (strlen($uid=$this->getItemField($id,'UF_INN'))) {
 			try {
 				if (!is_null($sapID=$this->sap->getMainEmployment(['uid'=>$uid]))) return $sapID;
@@ -237,7 +248,7 @@ class CBxUserList extends COrgStructureStorage {
 		}
 		return $sapID;
 	}
-	
+
 	/*
 	 * обновляет подразделение ID полями arFields
 	 * @param string $id идентификатор пользователя
@@ -247,7 +258,7 @@ class CBxUserList extends COrgStructureStorage {
 	public function updItem($id,$arFields){
 		//почистим
 		$arFields=CbxOrgStructure::cleanParams($arFields);
-		
+
 		//dry-run: не пишем, только сообщаем о намерении
 		if ($this->readOnly) {
 			echo "[DRY-RUN] пользователь #$id: обновил бы ".json_encode($arFields, JSON_UNESCAPED_UNICODE)."\n";
@@ -257,13 +268,13 @@ class CBxUserList extends COrgStructureStorage {
 		//пишем
 		$bs = new CUser();
 		$res = $bs->Update($id,$arFields);
-		
+
 		//проверяем
 		if(!$res) echo $bs->LAST_ERROR;
-		
+
 		//чистим память
 		unset ($bs);
-		
+
 		//возвращаем ответ
 		if ($res){ //если все до сих пор шло нормально то
 			$this->reloadItem($id); //перезагрузим обновленный элемент
