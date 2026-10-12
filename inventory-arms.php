@@ -92,7 +92,7 @@ foreach ($inventory_import['sources'] as $dataSrc) {
 	echo "Ingesting users...\n";
 	$ru = $ingest->ingestUsers($sapUsers, $sapOrg);
 	echo "  users: создано {$ru['created']}, обновлено {$ru['updated']} (из них усыновлено ручных {$ru['adopted']}), " .
-		"без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}\n";
+		"без изменений {$ru['ok']}, вне юрлиц {$ru['skipped']}; уволено без подразделения {$ru['orphaned']}\n";
 
 	//обратная синхронизация контактов ARMS -> SAP: email и телефоны ведутся в AD и
 	//инвентаризации, SAP получает их отсюда. Только для источника SAP (у 1С своих

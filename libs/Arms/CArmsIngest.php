@@ -338,6 +338,50 @@ class CArmsIngest {
 	}
 
 	/*
+	 * Увольнение сотрудника, у которого не осталось подразделения.
+	 *
+	 * Атрибуты в SAP живут периодами: расформированное подразделение «заканчивается»
+	 * и пропадает из выгрузки оргструктуры, а уволенные из него сотрудники остаются
+	 * с Orgeh, ведущим в никуда. Юрлицо по дереву для них уже не определить, но оно
+	 * и не нужно: табельный уникален между организациями, а запись ARMS свой org_id
+	 * знает. Без этого такие люди навсегда остаются в инвентаризации работающими.
+	 *
+	 * Правило сознательно узкое:
+	 *   - только когда узла нет в выгрузке вовсе (или Orgeh пуст); узел вне настроенных
+	 *     корней — это чужое юрлицо, его сотрудников не трогаем;
+	 *   - только запись ARMS, найденная по табельному: без организации никого
+	 *     не усыновляем и не создаём;
+	 *   - только уволенные; работающий без подразделения — аномалия выгрузки, в лог;
+	 *   - пишутся только признак и дата увольнения: должность у таких в выгрузке уже
+	 *     заглушка и затёрла бы настоящую, а Orgeh в ARMS и так прежний.
+	 *
+	 * @param mixed      $sapOrg оргструктура источника
+	 * @param array      $u      запись сотрудника источника
+	 * @param array|null $known  запись ARMS с этим табельным
+	 * @return array|null результат upsert либо null — случай не наш, обычный пропуск
+	 */
+	private function dismissOrphan($sapOrg, array $u, ?array $known): ?array {
+		$orgeh = (string)($u['Orgeh'] ?? '');
+		if (strlen($orgeh) && $sapOrg->exist($orgeh)) return null; //узел есть — значит вне юрлиц
+		if (is_null($known)) return null;
+		$pernr = (string)$u['Pernr'];
+		if (($u['Uvolen'] ?? '') !== 'Уволен') {
+			echo "ВНИМАНИЕ: $pernr '" . ($u['Ename'] ?? '') . "' работает, но подразделения '$orgeh' " .
+				"нет в выгрузке — запись ARMS #{$known['id']} не обновляется
+";
+			return null;
+		}
+		$fields = ['employee_id' => $pernr, 'Uvolen' => 1];
+		//пустая дата увольнения не должна затирать уже записанную
+		if (strlen((string)($u['Resign_date'] ?? ''))) $fields['resign_date'] = $u['Resign_date'];
+		$res = $this->writer->upsertUser($known['org_id'], $fields, $known);
+		if ($res['action'] === 'updated')
+			echo "  уволен без подразделения: $pernr '" . ($u['Ename'] ?? '') . "' (Orgeh '$orgeh' нет в выгрузке), ARMS #{$known['id']}
+";
+		return $res;
+	}
+
+	/*
 	 * Приём сотрудников. Признак увольнения на границе: внутренний 'Уволен'/'' -> 0/1.
 	 * Существующие записи сравниваются локально, PUT только при отличиях.
 	 *
@@ -353,8 +397,10 @@ class CArmsIngest {
 	 * кадровые ключи у ручных записей нужно очистить, выдуманный табельник может
 	 * ложно сматчиться с настоящим.
 	 *
+	 * Сотрудник, чьё подразделение исчезло из выгрузки, юрлица не имеет — см. dismissOrphan().
+	 *
 	 * @param int|null $limit ограничение числа записей (для тестов)
-	 * @return array счётчики [created, updated, adopted, ok, skipped]
+	 * @return array счётчики [created, updated, adopted, ok, orphaned, skipped]
 	 */
 	public function ingestUsers($sapUsers, $sapOrg, $limit = null): array {
 		//все существующие сотрудники одной выборкой (сравнение пачкой, без /search)
@@ -382,13 +428,20 @@ class CArmsIngest {
 		}
 		$claimed = []; //ручные записи, уже усыновлённые в этом прогоне
 
-		$c = ['created' => 0, 'updated' => 0, 'adopted' => 0, 'ok' => 0, 'skipped' => 0];
+		$c = ['created' => 0, 'updated' => 0, 'adopted' => 0, 'ok' => 0, 'orphaned' => 0, 'skipped' => 0];
 		$processed = 0;
 		foreach ($sapUsers->getIds() as $id) {
 			if (!is_null($limit) && $processed >= $limit) break;
 			$u = $sapUsers->getItem($id);
 			$orgId = $this->orgIdFor($sapOrg, $u['Orgeh'] ?? '');
-			if (!$orgId) { $c['skipped']++; continue; }
+			if (!$orgId) {
+				$res = $this->dismissOrphan($sapOrg, $u, $empMap[(string)$u['Pernr']] ?? null);
+				if (is_null($res)) { $c['skipped']++; continue; }
+				$c[$res['action']]++;
+				if ($res['action'] === 'updated') $c['orphaned']++;
+				$processed++;
+				continue;
+			}
 			$fields = [
 				'employee_id' => (string)$u['Pernr'],
 				'Orgeh'       => (string)($u['Orgeh'] ?? ''),
